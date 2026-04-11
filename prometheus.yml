@@ -20,10 +20,8 @@ scrape_configs:
   # Local host metrics (your current node-exporter container)
   - job_name: node_wazuh_server
     static_configs:
-      - targets: ['192.168.10.20:9100']
+      - targets: ['node-exporter:9100']
         labels: { alias: 'wazuh-server' }
-
-  # Core devices (requires node_exporter installed on each Linux host)
     relabel_configs:
       - target_label: instance
         replacement: 192.168.10.20:9100

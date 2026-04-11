@@ -82,7 +82,7 @@ if target_ip == "192.168.10.10":
     unraid_html.append(f"<div class='small'>Collector up: {h(int(up) if up is not None else 'N/A')}</div>")
     unraid_html.append(f"<div class='small'>Parity valid: {h(int(parity_ok) if parity_ok is not None else 'N/A')}</div>")
     unraid_html.append(f"<div class='small'>Array used %: {h(f'{arr_pct:.1f}' if arr_pct is not None else 'N/A')}</div>")
-    unraid_html.append("<div class='small'>(More parity/array/cache/device fields will appear once tower_unraid.prom parsing is fixed.)</div>")
+    unraid_html.append("<!-- UNRAID_DETAILS_PLACEHOLDER -->")
     unraid_html.append("</div>")
     unraid_block = "".join(unraid_html)
 

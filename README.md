@@ -4,7 +4,8 @@ On-premise infrastructure monitoring using Prometheus, node_exporter, custom tex
 
 **Hub:** `192.168.10.20` (wazuh-server)  
 **Dashboard:** `http://192.168.10.20:8088/`  
-**Refresh interval:** 3 minutes (systemd timers)
+**Refresh interval:** 3 minutes (systemd timers)  
+**Repository:** `https://github.com/modem56-cpu/monitoring-infrastructure`
 
 ---
 
@@ -12,8 +13,8 @@ On-premise infrastructure monitoring using Prometheus, node_exporter, custom tex
 
 | Host | IP | Role | Exporter | Health |
 |------|----|------|----------|--------|
-| wazuh-server | 192.168.10.20 | SIEM / Monitoring Hub | node_exporter :9100 | UP |
-| fathom-vault-server | 192.168.10.24 | Ubuntu VM | node_exporter :9100 | UP |
+| wazuh-server | 192.168.10.20 | SIEM / Monitoring Hub | node_exporter :9100 (Docker) | UP |
+| fathom-vault-server | 192.168.10.24 | Ubuntu VM | node_exporter :9100 | DOWN (VM off) |
 | vm-devops | 192.168.5.131 | Ubuntu DevOps VM | node_exporter :9100 | UP |
 | unraid-tower | 192.168.10.10 | NAS / Hypervisor | node_exporter :9100 | UP |
 | Windows Workstation | 192.168.1.253 | Windows Endpoint | windows_exporter :9182 | UP |
@@ -25,14 +26,22 @@ On-premise infrastructure monitoring using Prometheus, node_exporter, custom tex
 ## Repository Structure
 
 ```
-monitoring-docs/
+monitoring-infrastructure/
 ├── README.md                  # This file
 ├── ARCHITECTURE.md            # System architecture and data flow
 ├── WORKFLOW.md                # ASCII workflow diagram
 ├── SCRIPTS.md                 # Script inventory and responsibilities
 ├── ACCOMPLISHMENTS.md         # Leadership accomplishment report
 ├── TODO.md                    # Next steps and roadmap
-└── wazuh-siem-integration.md  # Wazuh SIEM integration plan
+├── wazuh-siem-integration.md  # Wazuh SIEM integration plan
+├── prometheus.yml             # Prometheus configuration
+├── docker-compose.yml         # Docker stack (node-exporter, prometheus, blackbox, grafana)
+├── blackbox.yml               # Blackbox exporter config
+├── rules/                     # Prometheus alerting rules
+├── targets/                   # Prometheus file_sd targets
+├── bin/                       # Collection, generation, and utility scripts
+├── backup/                    # Configuration backups
+└── *.sh                       # Root-level generation and patch scripts
 ```
 
 ---
@@ -59,5 +68,16 @@ monitoring-docs/
 | Collection scripts | `/opt/monitoring/bin/` |
 | Textfile metrics | `/opt/monitoring/textfile_collector/` |
 | SSH keys (VPS) | `/opt/monitoring/sshkeys/` |
-| Prometheus config | `/etc/prometheus/` |
-| Scrape targets (file_sd) | `/etc/prometheus/file_sd/` |
+| Prometheus config | `/opt/monitoring/prometheus.yml` (mounted into Docker) |
+| Docker Compose | `/opt/monitoring/docker-compose.yml` |
+
+### Docker Stack
+
+All core services run via Docker Compose on `192.168.10.20`:
+
+| Container | Port | Purpose |
+|-----------|------|---------|
+| `node-exporter` | 9100 | Local host metrics + textfile collector |
+| `prometheus` | 9090 (localhost) | TSDB + scraping |
+| `blackbox-exporter` | 9115 | ICMP/TCP/HTTP probes |
+| `grafana` | 3000 (localhost) | Historical dashboards |

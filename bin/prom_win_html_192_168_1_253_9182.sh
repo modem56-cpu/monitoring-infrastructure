@@ -245,8 +245,14 @@ for f,mt in file_rows:
     h.append(f"<tr><td>{esc(f)}</td><td>{int(mt)}</td></tr>")
 h.append("</table></div>")
 
-h.append("<div class='card'><h3>SSH / SMB</h3>")
-h.append(f"<div class='line'>Active SSH sessions: {int(ssh_total)}</div>")
+h.append("<div class='card'><h3>SSH sessions (active)</h3>")
+h.append("<table><tr><th>User</th><th>Source IP</th><th>Sessions</th></tr>")
+if int(ssh_total) > 0:
+    h.append(f"<tr><td colspan='3'>{int(ssh_total)} active session(s) — detail not available from Windows</td></tr>")
+else:
+    h.append("<tr><td colspan='3'>No remote SSH sessions detected.</td></tr>")
+h.append("</table></div>")
+h.append("<div class='card'><h3>SMB sessions</h3>")
 h.append(f"<div class='line'>Active SMB sessions: {int(smb_sess)} | Open SMB files: {int(smb_open)} | Shares defined (non-admin): {int(shares)}</div>")
 h.append("</div>")
 

@@ -7,11 +7,21 @@
 ║              COLLECTION  (every 15s — Prometheus scrape)         ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-  Each Linux host runs:
+  wazuh-server (192.168.10.20) — Docker stack:
+  ┌─────────────────────────────────────────────────┐
+  │  node-exporter container (:9100)                │
+  │    mounts /opt/monitoring/textfile_collector:ro  │
+  │    Prometheus scrapes via Docker DNS             │
+  │    (node-exporter:9100 → relabel 192.168.10.20) │
+  └─────────────────────────────────────────────────┘
+
+  Each Linux host runs locally:
   ┌─────────────────────────────────────────┐
-  │  /opt/monitoring/bin/sys-sample-prom.sh │  → sys_sample_*.prom
-  │  /opt/monitoring/bin/sys-topproc-prom.sh│  → sys_topproc_*.prom
-  │  tower_ssh_sessions_local.sh            │  → tower_ssh_sessions_*.prom
+  │  sys-sample-prom.sh   → sys_sample.prom │
+  │  sys-topproc-prom.sh  → sys_topproc.prom│
+  │  tower_textfile_extras.sh (or local.sh) │
+  │    → tower_ssh_sessions.prom            │
+  │    → tower_extras.prom                  │
   └─────────────────────────────────────────┘
           │ node_exporter reads textfile dir
           ▼
@@ -22,48 +32,50 @@
   │  collect_vm_ms_ssh.sh (timeout 30s)           │
   │    ssh metrics@31.170.165.94 (forced command) │
   │    → vps_31_170_165_94.prom                   │
+  │    StrictHostKeyChecking=yes                   │
+  │    known_hosts: /opt/monitoring/sshkeys/       │
   └───────────────────────────────────────────────┘
 
   Windows (192.168.1.253):
   ┌───────────────────────────────────────┐
   │  windows_exporter :9182               │
+  │  + textfile: sys_topproc.prom         │
+  │  + textfile: win_sessions.prom        │
   │  Prometheus scrapes → windows_* TSDB  │
   └───────────────────────────────────────┘
 
 
 ╔══════════════════════════════════════════════════════════════════╗
-║              HTML GENERATION  (every 3 minutes)                  ║
+║        HTML GENERATION  (every 3 minutes — sequential)           ║
 ╚══════════════════════════════════════════════════════════════════╝
 
+  TIMER A fires → prom-html-dashboards.service runs FIRST:
+
   ┌─────────────────────────────────────────────────────────────┐
-  │  TIMER A: prom-html-dashboards.timer                        │
-  │                                                             │
   │  [ExecStart]  update_all_dashboards.sh                      │
-  │    └─ prom_tower_dashboard_html.sh  ×4 targets              │
-  │         Queries Prometheus API → renders tower_*.html       │
-  │         Sections: header, SSH count, Top RSS, Docker list   │
-  │         Output: ~3-5 KB bare HTML                           │
+  │    ├─ prom_tower_dashboard_html.sh ×4 targets               │
+  │    │    (10.10, 10.20, 5.131, 10.24)                        │
+  │    │    Queries Prometheus API → renders tower_*.html        │
+  │    ├─ collect_vm_ms_ssh.sh → SSH pull VPS metrics            │
+  │    └─ prom_vps_html → VPS HTML                              │
   │                                                             │
   │  [Post 10] patch_reports_nocache.sh  (cache headers)        │
-  │  [Post 20] patch_reports_nocache.sh  (duplicate, harmless)  │
-  │  [Post 30] chmod 0755 reports/ ; chown wazuh-admin          │
-  │  [Post 30] patch_reports_unraid.sh  (Unraid array/temps)    │
-  │  [Post 40] patch_reports_final.sh ──────────────────────┐   │
-  └─────────────────────────────────────────────────────────┼───┘
-                                                            │
-  ┌─────────────────────────────────────────────────────────┼───┐
-  │  TIMER B: prom-refresh-html.timer                       │   │
-  │                                                         │   │
-  │  [ExecStart]  prom_refresh_all_html.sh                  │   │
-  │    └─ prom_vm_dashboard_html.sh ×2                      │   │
-  │         → vm_dashboard_192_168_10_20_9100.html          │   │
-  │         → vm_dashboard_192_168_5_131_9100.html          │   │
-  │                                                         │   │
-  │  [Post 40] fix_top_cpu_tables.sh                        │   │
-  │    targets: 10.24, 10.10                                │   │
-  │    injects: <!-- TOP_CPU_TABLE_V2 --> block             │   │
-  │                                                         │   │
-  │  [Post 99] patch_reports_final.sh ──────────────────────┘   │
+  │  [Post 30] chmod/chown reports/                             │
+  │  [Post 30] patch_reports_unraid.sh  (array/device table)    │
+  │  [Post 40] patch_reports_final.sh  (full patch chain)       │
+  └─────────────────────────────────────────────────────────────┘
+                         │
+                         ▼  After=prom-html-dashboards.service
+  ┌─────────────────────────────────────────────────────────────┐
+  │  TIMER B → prom-refresh-html.service runs SECOND:           │
+  │                                                             │
+  │  [ExecStart]  prom_refresh_all_html.sh                      │
+  │    ├─ sys-topproc-prom.sh (refresh local textfile)          │
+  │    ├─ prom_topproc_generate_all.sh (topproc HTML)           │
+  │    └─ prom_vm_dashboard_html.sh ×2 (vm_dashboard files)     │
+  │                                                             │
+  │  [Post 40] fix_top_cpu_tables.sh                            │
+  │  [Post 99] patch_reports_final.sh  (full patch chain)       │
   └─────────────────────────────────────────────────────────────┘
 
 
@@ -71,44 +83,36 @@
 ║         patch_reports_final.sh  —  PATCH CHAIN                   ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-  Step 1  tower_ssh_sessions_local.sh
-          └─ Updates SSH session textfile metrics for 10.20
+  Step 1   tower_ssh_sessions_local.sh
+           └─ Uses w -h -i to detect remote SSH sessions on 10.20
+              Full username resolution via /etc/passwd
 
-  Step 2  patch_reports_wazuh_extras.sh  →  tower_192_168_10_20
-          ├─ De-dup: remove old <!-- SYS_SAMPLE_V2_WAZUH --> blocks
-          ├─ De-dup: remove old <!-- TOP_CPU_TABLE_V2 --> blocks
-          ├─ Query Prometheus for sys_sample_* + node_* fallbacks
-          ├─ Query tower_ssh_sessions_user_src{target="192.168.10.20"}
-          ├─ Query sys_topproc_cpu_percent / rss_kb (comm label)
-          └─ Inject before Top Processes by RSS:
-               <!-- SYS_SAMPLE_V2_WAZUH --> card
-               <!-- SSH_TABLE_V2_WAZUH --> card
-               <!-- TOP_CPU_V1_WAZUH --> card
+  Step 2   patch_reports_wazuh_extras.sh  →  tower_192_168_10_20
+           ├─ sys_sample card (CPU/mem/net/disk/filesystem)
+           ├─ SSH sessions table (admin IPs tagged)
+           └─ Top CPU processes table
 
-  Step 3  prom_win_html_192_168_1_253_9182.sh
-          └─ Full HTML regen from Prometheus → win_192_168_1_253_9182.html
+  Step 3   prom_win_html_192_168_1_253_9182.sh
+           └─ Full Windows HTML (system stats, SSH/SMB tables, processes)
 
-  Step 4  collect_vm_ms_ssh.sh  (timeout: ssh-keyscan 15s, ssh 30s)
-          └─ SSH to metrics@31.170.165.94
-             forced command returns Prom exposition → vps_*.prom
+  Step 4   collect_vm_ms_ssh.sh → prom_vps_html_31_170_165_94.sh
+           └─ Refresh VPS metrics via SSH + regenerate HTML
 
-  Step 5  prom_vps_html_31_170_165_94.sh
-          └─ Full HTML regen → vps_31_170_165_94.html
+  Step 5   patch_reports_ubuntu_5_131_extras.sh  →  tower_192_168_5_131
+           └─ sys_sample + SSH table + Top CPU (same pattern)
 
-  Step 6  patch_reports_ubuntu_5_131_extras.sh  →  tower_192_168_5_131
-          └─ Same pattern as Step 2 (markers: UBUNTU_5_131)
+  Step 6   patch_reports_ubuntu_10_24_extras.sh  →  tower_192_168_10_24
+           └─ sys_sample + SSH table + Top CPU (no swap when 0)
 
-  Step 7  patch_reports_ubuntu_10_24_extras.sh  →  tower_192_168_10_24
-          ├─ Same pattern (markers: UBUNTU_10_24)
-          ├─ No swap line when swap_total = 0
-          ├─ first_nonzero() for disk read totals
-          └─ root_pct queries sys_sample_fs_root_percent as fallback
+  Step 7   patch_reports_unraid_10_10_extras.sh  →  tower_192_168_10_10
+           └─ sys_sample + SSH table + Top CPU (no swap when 0)
 
-  Step 8  patch_reports_unraid_details_10_10.sh  →  tower_192_168_10_10
-          └─ Injects Unraid array/cache/disk detail block
+  Step 8   patch_reports_unraid_details_10_10.sh  →  tower_192_168_10_10
+           └─ Uptime, Docker/VM counts, filesystem, hardware info
 
-  Step 9  patch_reports_unraid.sh  →  tower_192_168_10_10
-          └─ Refreshes Unraid parity/temp/util data
+  Step 9   patch_reports_unraid.sh  →  tower_192_168_10_10
+           └─ Array device table (status/temp/SMART/utilization)
+              Cache pool + system cache usage
 
 
 ╔══════════════════════════════════════════════════════════════════╗
@@ -137,4 +141,18 @@
   <!-- TOP_CPU_V{n}_{HOST} -->      versioned, host-scoped
 
   Re-running any script any number of times is safe — no duplication.
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║              RACE CONDITION PREVENTION                            ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Problem (fixed April 2026): Multiple generators overwrote patched HTML.
+  Solution:
+  1. prom-refresh-html.service has After=prom-html-dashboards.service
+  2. Removed root crontab entries that regenerated tower HTML every minute
+  3. Removed duplicate tower generators from prom_topproc_generate_all.sh
+     and prom_refresh_all_html.sh (tower_10.10, tower_10.24)
+  4. Removed obsolete tower-dashboard.service
+  5. Only update_all_dashboards.sh generates tower_*.html base files
 ```

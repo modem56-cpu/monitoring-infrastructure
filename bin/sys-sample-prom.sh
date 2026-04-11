@@ -3,10 +3,10 @@ set -euo pipefail
 umask 022
 
 # Allow override: TEXTDIR=/path/to/textfile_collector
-TEXTDIR="${TEXTDIR:-$(docker inspect node-exporter --format '{{range .Mounts}}{{if or (eq .Destination "/textfile") (eq .Destination "/var/lib/node_exporter/textfile_collector")}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)}"
+TEXTDIR="${TEXTDIR:-$(docker inspect node-exporter --format '{{range .Mounts}}{{if or (eq .Destination "/textfile") (eq .Destination "/textfile_collector") (eq .Destination "/var/lib/node_exporter/textfile_collector")}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)}"
 test -n "$TEXTDIR" || { echo "ERROR: could not detect node-exporter textfile collector dir. Run: docker inspect node-exporter --format '{{json .Mounts}}'"; exit 1; }
 
-install -d -m 0755 -o root -g root "$TEXTDIR"
+install -d -m 0755 "$TEXTDIR" 2>/dev/null || true
 
 OUT="$TEXTDIR/sys_sample.prom"
 TMP="$(mktemp "$TEXTDIR/sys_sample.prom.XXXXXX")"
