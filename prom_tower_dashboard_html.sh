@@ -1,0 +1,1 @@
+/opt/monitoring/bin/prom_tower_dashboard_html.sh

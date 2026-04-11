@@ -1,0 +1,15 @@
+# Sensitive files
+sshkeys/
+
+# Runtime data
+logs/
+reports/
+textfile_collector/
+
+# Backup files
+*.bak
+*.bak.*
+*.bad.*
+
+# Backup archives
+targets.bak.*.tgz

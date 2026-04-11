@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTANCE="${1:-}"
+if [[ -z "$INSTANCE" ]]; then
+  echo "Usage: $0 <ip:9100>"
+  exit 1
+fi
+
+PROM_URL="${PROM_URL:-http://127.0.0.1:9090}"
+OUTDIR="/opt/monitoring/reports"
+mkdir -p "$OUTDIR"
+OUT="$OUTDIR/tower_${INSTANCE//[:.]/_}.html"
+
+python3 - "$INSTANCE" "$PROM_URL" "$OUT" <<'PY'
+import json, sys, time, html
+from urllib.request import urlopen
+from urllib.parse import urlencode
+
+instance = sys.argv[1]
+prom = sys.argv[2].rstrip("/")
+out = sys.argv[3]
+target_ip = instance.split(":")[0]
+
+def h(s): return html.escape(str(s), quote=True)
+
+def prom_query(q: str):
+    url = f"{prom}/api/v1/query?{urlencode({'query': q})}"
+    with urlopen(url, timeout=8) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    if data.get("status") != "success":
+        return []
+    return data.get("data", {}).get("result", []) or []
+
+def q_first_float(q: str):
+    r = prom_query(q)
+    if not r: return None
+    try:
+        return float(r[0]["value"][1])
+    except Exception:
+        return None
+
+def q_up_labels():
+    r = prom_query(f'up{{instance="{instance}"}}')
+    if not r: return {}
+    return r[0].get("metric", {}) or {}
+
+def fmt_num(x, nd=1):
+    if x is None: return "—"
+    try:
+        return f"{float(x):.{nd}f}"
+    except Exception:
+        return "—"
+
+def fmt_int(x):
+    if x is None: return "—"
+    try:
+        return str(int(float(x)))
+    except Exception:
+        return "—"
+
+def fmt_mb_from_kb(kb):
+    if kb is None: return "—"
+    try:
+        return f"{float(kb)/1024.0:.1f}"
+    except Exception:
+        return "—"
+
+labels = q_up_labels()
+alias = labels.get("alias") or labels.get("instance_alias") or labels.get("name") or ""
+job = labels.get("job") or ""
+upv = q_first_float(f'up{{instance="{instance}"}}')
+
+# Docker counts (existing metric family)
+docker_running = q_first_float(f'tower_docker_running{{instance="{instance}"}}')
+docker_total   = q_first_float(f'tower_docker_total{{instance="{instance}"}}')
+
+# Docker list (aggregated collector: tower_docker_container_running{target="IP",name="..."} 1)
+docker_list = prom_query(f'tower_docker_container_running{{target="{target_ip}"}}')
+docker_names = sorted({x.get("metric", {}).get("name","") for x in docker_list if x.get("metric", {}).get("name")})
+docker_running_list_count = len(docker_names)
+
+# Optional session metrics (only if present)
+ssh_sessions = q_first_float(f'tower_ssh_sessions{{instance="{instance}"}}')
+smb_sessions = q_first_float(f'tower_smb_sessions{{instance="{instance}"}}')
+
+# Top processes: join RSS + CPU + MEM by PID
+rss_vec = prom_query(f'sys_topproc_rss_kb{{instance="{instance}"}}')
+cpu_vec = prom_query(f'sys_topproc_pcpu_percent{{instance="{instance}"}}') or prom_query(f'sys_topproc_pcpu_percent{{instance="{instance}"}}')
+mem_vec = prom_query(f'sys_topproc_pmem_percent{{instance="{instance}"}}') or prom_query(f'sys_topproc_pmem_percent{{instance="{instance}"}}')
+
+cpu_by_pid = {}
+mem_by_pid = {}
+
+for x in cpu_vec:
+    pid = (x.get("metric", {}) or {}).get("pid")
+    if not pid: continue
+    cpu_by_pid[pid] = x.get("value", [None, None])[1]
+
+for x in mem_vec:
+    pid = (x.get("metric", {}) or {}).get("pid")
+    if not pid: continue
+    mem_by_pid[pid] = x.get("value", [None, None])[1]
+
+# sort by RSS desc
+def vfloat(x):
+    try: return float(x.get("value",[None,0])[1])
+    except Exception: return 0.0
+
+rss_vec.sort(key=vfloat, reverse=True)
+top = rss_vec[:15]
+
+rows = []
+rank = 0
+for x in top:
+    m = x.get("metric", {}) or {}
+    pid = m.get("pid","")
+    user = m.get("user","")
+    comm = m.get("comm","")
+    rss_kb = x.get("value",[None,None])[1]
+    cpu = cpu_by_pid.get(pid)
+    mem = mem_by_pid.get(pid)
+    rank += 1
+    rows.append((rank, user, pid, comm, cpu, mem, rss_kb))
+
+# HTML
+css = """
+body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:18px}
+.card{background:#121823;border:1px solid #1f2a3a;border-radius:14px;padding:14px;margin-bottom:14px}
+.hdr{display:flex;gap:18px;flex-wrap:wrap}
+.k{opacity:.75;font-size:12px}
+.v{font-weight:800}
+.table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+.table th{opacity:.75;text-align:left;font-weight:700;padding:8px;border-bottom:1px solid #1f2a3a}
+.table td{padding:8px;border-bottom:1px solid #152033}
+.small{opacity:.8;font-size:12px;margin-top:6px}
+"""
+
+def kv(k,v):
+    return f"<div><div class='k'>{h(k)}</div><div class='v'>{h(v)}</div></div>"
+
+meta_parts = []
+meta_parts.append(kv("Instance", instance))
+meta_parts.append(kv("Alias", alias or "—"))
+meta_parts.append(kv("Job", job or "—"))
+meta_parts.append(kv("Up", fmt_int(upv)))
+
+docker_line = "Docker: N/A"
+if docker_running is not None and docker_total is not None:
+    docker_line = f"Docker: {int(docker_running)} running / {int(docker_total)} total"
+
+gen = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+html_out = []
+html_out.append("<!doctype html><html><head><meta charset='utf-8'>")
+html_out.append(f"<title>Tower {h(instance)}</title>")
+html_out.append(f"<style>{css}</style></head><body>")
+
+html_out.append("<div class='card'><div class='hdr'>")
+html_out.append("".join(meta_parts))
+html_out.append("</div>")
+html_out.append(f"<div class='small'>{h(docker_line)}</div>")
+
+# docker list block
+if docker_running_list_count > 0:
+    html_out.append(f"<div class='small'><b>Docker containers (running): {docker_running_list_count}</b></div>")
+    html_out.append("<div class='small'>" + "<br>".join(h(n) for n in docker_names) + "</div>")
+
+if ssh_sessions is not None:
+    html_out.append(f"<div class='small'>SSH sessions: {fmt_int(ssh_sessions)}</div>")
+if smb_sessions is not None:
+    html_out.append(f"<div class='small'>SMB sessions: {fmt_int(smb_sessions)}</div>")
+
+html_out.append(f"<div class='small'>Generated: {h(gen)} via {h(prom)}</div>")
+html_out.append("</div>")
+
+# Top processes
+html_out.append("<div class='card'>")
+html_out.append("<div class='v'>Top processes (by RSS)</div>")
+html_out.append("<table class='table'>")
+html_out.append("<thead><tr><th>Rank</th><th>User</th><th>PID</th><th>Command</th><th>CPU%</th><th>MEM%</th><th>RSS (MB)</th></tr></thead><tbody>")
+for r,user,pid,comm,cpu,mem,rss_kb in rows:
+    cpu_s = "—" if cpu is None else fmt_num(cpu,1)
+    mem_s = "—" if mem is None else fmt_num(mem,1)
+    html_out.append(
+        "<tr>"
+        f"<td>{r}</td>"
+        f"<td>{h(user)}</td>"
+        f"<td>{h(pid)}</td>"
+        f"<td>{h(comm)}</td>"
+        f"<td>{h(cpu_s)}</td>"
+        f"<td>{h(mem_s)}</td>"
+        f"<td>{h(fmt_mb_from_kb(rss_kb))}</td>"
+        "</tr>"
+    )
+html_out.append("</tbody></table></div>")
+
+html_out.append("</body></html>")
+
+with open(out, "w", encoding="utf-8") as f:
+    f.write("".join(html_out))
+
+print("Wrote:", out)
+PY

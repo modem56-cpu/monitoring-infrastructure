@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTANCE="${1:-}"
+if [[ -z "$INSTANCE" ]]; then
+  echo "Usage: $0 <ip:9100>"
+  exit 1
+fi
+
+PROM_URL="${PROM_URL:-http://127.0.0.1:9090}"
+OUTDIR="/opt/monitoring/reports"
+mkdir -p "$OUTDIR"
+OUT="$OUTDIR/tower_${INSTANCE//[:.]/_}.html"
+
+python3 - "$INSTANCE" "$PROM_URL" "$OUT" <<'PY'
+import json, sys, time, html
+from urllib.request import urlopen
+from urllib.parse import urlencode
+
+instance = sys.argv[1]
+prom = sys.argv[2].rstrip("/")
+out = sys.argv[3]
+
+def h(s): return html.escape(str(s), quote=True)
+
+def prom_query(q: str):
+    url = f"{prom}/api/v1/query?{urlencode({'query': q})}"
+    with urlopen(url, timeout=8) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    if data.get("status") != "success":
+        return []
+    return data.get("data", {}).get("result", []) or []
+
+def _to_float(x):
+    try:
+        if x is None: return None
+        if isinstance(x, (int, float)): return float(x)
+        s = str(x)
+        if s.lower() == "nan": return float("nan")
+        return float(s)
+    except Exception:
+        return None
+
+def q_one(expr: str):
+    """Return a single numeric value. If multiple series match, return max numeric."""
+    res = prom_query(expr)
+    vals = []
+    for item in res:
+        v = _to_float(item.get("value", [None, None])[1])
+        if v is None: 
+            continue
+        vals.append(v)
+    if not vals:
+        return None
+    # max() handles normal floats; keep NaN from winning
+    clean = [v for v in vals if v == v]  # v==v filters out NaN
+    if clean:
+        return max(clean)
+    return vals[0]  # all NaN
+
+def q_vec(expr: str):
+    return prom_query(expr)
+
+def first_label(expr: str, label: str):
+    res = q_vec(expr)
+    if not res: return None
+    return res[0].get("metric", {}).get(label)
+
+# ---- Base host meta (optional) ----
+up_val = q_one(f'up{{instance="{instance}"}}')
+alias  = first_label(f'up{{instance="{instance}"}}', "alias")
+job    = first_label(f'up{{instance="{instance}"}}', "job")
+
+# ---- Docker (Ubuntu metrics OR Unraid metrics) ----
+docker_running = q_one(f'tower_docker_running{{instance="{instance}"}}')
+docker_total   = q_one(f'tower_docker_total{{instance="{instance}"}}')
+
+if docker_running is None:
+    docker_running = q_one(f'tower_extras_docker_containers_running{{instance="{instance}"}}')
+if docker_total is None:
+    docker_total   = q_one(f'tower_extras_docker_containers_total{{instance="{instance}"}}')
+
+# ---- SSH Sessions (Ubuntu only) ----
+ssh_sessions = q_one(f'tower_ssh_sessions{{instance="{instance}"}}')
+
+# ---- SMB (Unraid only, but keep generic names) ----
+smb_sessions = q_one(f'tower_smb_sessions{{instance="{instance}"}}')
+if smb_sessions is None:
+    smb_sessions = q_one(f'tower_extras_smb_sessions{{instance="{instance}"}}')
+
+smb_shares = q_vec(f'tower_extras_smb_share_security{{instance="{instance}"}}')
+smb_users  = q_vec(f'tower_extras_smb_user_configured{{instance="{instance}"}}')
+
+# ---- WireGuard peers (Unraid style metric) ----
+wg_peers = q_vec(f'wireguard_peer_handshake_age_seconds{{instance="{instance}"}}')
+
+def wg_status(age):
+    # age can be NaN => never
+    if age is None: return "never"
+    if age != age: return "never"  # NaN
+    if age <= 120: return "active"
+    if age <= 3600: return "idle"
+    if age <= 86400: return "stale"
+    return "stale"
+
+wg_summary = None
+wg_rows = []
+if wg_peers:
+    counts = {"active":0, "idle":0, "stale":0, "never":0}
+    for item in wg_peers:
+        m = item.get("metric", {})
+        iface = m.get("iface", "")
+        peer  = m.get("peer", "")
+        age   = _to_float(item.get("value", [None,None])[1])
+        st = wg_status(age)
+        counts[st] += 1
+        if age is None or (age != age):  # NaN
+            age_txt = "never"
+        else:
+            # human-ish age
+            if age < 60: age_txt = f"{int(age)}s"
+            elif age < 3600: age_txt = f"{int(age//60)}m"
+            elif age < 86400: age_txt = f"{int(age//3600)}h"
+            else: age_txt = f"{age/86400:.2f}d"
+        wg_rows.append((iface, peer, age_txt, st))
+    wg_summary = f"WireGuard: active {counts['active']} idle {counts['idle']} stale {counts['stale']} never {counts['never']}"
+
+# ---- Top processes (keep existing metric; Ubuntu + Unraid both have sys_topproc_*) ----
+top_rss = q_vec(f'topk(15, sys_topproc_rss_kb{{instance="{instance}"}})')
+top_cpu = q_vec(f'topk(15, sys_topproc_pcpu_percent{{instance="{instance}"}})')
+top_mem = q_vec(f'topk(15, sys_topproc_pmem_percent{{instance="{instance}"}})')
+
+def vec_to_map(vec, key=("pid","comm","user")):
+    mp = {}
+    for it in vec:
+        m = it.get("metric", {})
+        pid = m.get("pid","")
+        comm = m.get("comm","")
+        user = m.get("user","")
+        k = (pid, comm, user)
+        v = _to_float(it.get("value",[None,None])[1])
+        mp[k] = v
+    return mp
+
+rss_map = vec_to_map(top_rss)
+cpu_map = vec_to_map(top_cpu)
+mem_map = vec_to_map(top_mem)
+
+# union keys based on rss list order
+keys = list(rss_map.keys())
+
+# ---- Render HTML (hide N/A sections entirely) ----
+ts = time.strftime("%Y-%m-%d %H:%M:%S")
+title = f"Tower Dashboard | {instance}"
+
+parts = []
+parts.append("<!doctype html><html><head><meta charset='utf-8'>")
+parts.append(f"<title>{h(title)}</title>")
+parts.append("""
+<style>
+body{font-family:Arial,Helvetica,sans-serif;margin:16px;background:#0b0f14;color:#e8eef7}
+.card{background:#121a24;border:1px solid #1f2a3a;border-radius:10px;padding:12px;margin:0 0 12px 0}
+.hrow{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.k{opacity:.75;font-size:12px}
+.value{font-size:18px;font-weight:700}
+.sub{opacity:.85;margin-top:2px}
+.meta{opacity:.85;margin-top:6px;font-size:12px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{border-bottom:1px solid #1f2a3a;padding:6px 8px;text-align:left;font-size:12px}
+th{opacity:.75}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2b3a50;font-size:11px;opacity:.9}
+</style>
+""")
+parts.append("</head><body>")
+parts.append("<div class='card'>")
+parts.append("<div class='hrow'>")
+parts.append(f"<div><div class='k'>Instance</div><div class='value'>{h(instance)}</div></div>")
+parts.append(f"<div><div class='k'>Alias</div><div class='value'>{h(alias) if alias else '—'}</div></div>")
+parts.append(f"<div><div class='k'>Job</div><div class='value'>{h(job) if job else '—'}</div></div>")
+parts.append(f"<div><div class='k'>Up</div><div class='value'>{h(int(up_val)) if up_val is not None else '—'}</div></div>")
+parts.append("</div>")
+
+# Docker (only if present)
+if docker_running is not None and docker_total is not None:
+    parts.append(f"<div class='meta'>Docker: {int(docker_running)} running / {int(docker_total)} total</div>")
+
+
+# --- Docker container list (only for selected tower instances) ---
+ip = instance.split(":")[0]
+if ip in {"192.168.10.10","192.168.5.131","192.168.10.20"}:
+    up_res = prom_query(f'tower_docker_list_up{{target="{ip}"}}')
+    up = None
+    if up_res:
+        try:
+            up = int(float(up_res[0].get("value",[None,None])[1]))
+        except Exception:
+            up = None
+
+    if up != 1:
+        parts.append("<div class='meta'>Docker containers: unavailable (SSH/docker access)</div>")
+    else:
+        res = prom_query(f'tower_docker_container_running{{target="{ip}"}}')
+        names = sorted({r.get("metric",{}).get("name","") for r in res if r.get("metric",{}).get("name")})
+        if not names:
+            parts.append("<div class='meta'><b>Running containers</b>: none</div>")
+        else:
+            parts.append("<div class='meta'><b>Running containers</b>: " + ", ".join(h(n) for n in names) + "</div>")
+# --- end docker list ---
+# SSH Sessions (only if present)
+if ssh_sessions is not None:
+    parts.append(f"<div class='meta'>SSH sessions: {int(ssh_sessions)}</div>")
+
+# SMB (only if present)
+if smb_sessions is not None:
+    parts.append(f"<div class='meta'>SMB sessions: {int(smb_sessions)}</div>")
+
+# WireGuard (only if present)
+if wg_summary:
+    parts.append(f"<div class='meta'>{h(wg_summary)}</div>")
+
+parts.append(f"<div class='k' style='margin-top:8px'>Generated: {h(ts)} via {h(prom)}</div>")
+parts.append("</div>")  # end card
+
+# WireGuard peers table (only if present)
+if wg_rows:
+    parts.append("<div class='card'><h2 style='font-size:16px;margin:0 0 8px 0;'>WireGuard peers</h2>")
+    parts.append("<table><tr><th>IFACE</th><th>PEER</th><th>AGE</th><th>STATUS</th></tr>")
+    for iface, peer, age_txt, st in wg_rows:
+        parts.append(f"<tr><td>{h(iface)}</td><td>{h(peer)}</td><td>{h(age_txt)}</td><td><span class='badge'>{h(st)}</span></td></tr>")
+    parts.append("</table></div>")
+
+# SMB shares/users (only if present)
+if smb_shares or smb_users:
+    parts.append("<div class='card'><h2 style='font-size:16px;margin:0 0 8px 0;'>SMB (Unraid)</h2>")
+    if smb_shares:
+        parts.append("<div class='k'>Shares</div>")
+        parts.append("<table><tr><th>Share</th><th>Security</th></tr>")
+        for it in smb_shares:
+            m = it.get("metric", {})
+            share = m.get("share","")
+            sec   = m.get("security","")
+            parts.append(f"<tr><td>{h(share)}</td><td>{h(sec)}</td></tr>")
+        parts.append("</table>")
+    if smb_users:
+        parts.append("<div class='k' style='margin-top:10px'>Configured users</div>")
+        parts.append("<table><tr><th>User</th></tr>")
+        for it in smb_users:
+            m = it.get("metric", {})
+            parts.append(f"<tr><td>{h(m.get('user',''))}</td></tr>")
+        parts.append("</table>")
+    parts.append("</div>")
+
+# Top processes
+parts.append("<div class='card'><h2 style='font-size:16px;margin:0 0 8px 0;'>Top processes (by RSS)</h2>")
+parts.append("<table><tr><th>Rank</th><th>User</th><th>PID</th><th>Command</th><th>CPU%</th><th>MEM%</th><th>RSS (MB)</th></tr>")
+rank = 0
+for (pid, comm, user) in keys:
+    rank += 1
+    rss_kb = rss_map.get((pid,comm,user))
+    cpu = cpu_map.get((pid,comm,user))
+    mem = mem_map.get((pid,comm,user))
+    rss_mb = (rss_kb/1024.0) if (rss_kb is not None and rss_kb==rss_kb) else None
+    parts.append("<tr>" +
+        f"<td>{rank}</td>" +
+        f"<td>{h(user)}</td>" +
+        f"<td>{h(pid)}</td>" +
+        f"<td>{h(comm)}</td>" +
+        f"<td>{h(f'{cpu:.1f}' if (cpu is not None and cpu==cpu) else '—')}</td>" +
+        f"<td>{h(f'{mem:.1f}' if (mem is not None and mem==mem) else '—')}</td>" +
+        f"<td>{h(f'{rss_mb:.1f}' if (rss_mb is not None and rss_mb==rss_mb) else '—')}</td>" +
+    "</tr>")
+parts.append("</table></div>")
+
+parts.append("</body></html>")
+
+open(out, "w", encoding="utf-8").write("".join(parts))
+print("Saved:", out)
+PY

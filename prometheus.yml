@@ -1,0 +1,99 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: node_ubuntu_192_168_10_24
+    static_configs:
+      - targets: ["192.168.10.24:9100"]
+        labels:
+          alias: "fathom-vault-server"
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['prometheus:9090']
+
+  # Local host metrics (your current node-exporter container)
+  - job_name: node_wazuh_server
+    static_configs:
+      - targets: ['192.168.10.20:9100']
+        labels: { alias: 'wazuh-server' }
+
+  # Core devices (requires node_exporter installed on each Linux host)
+    relabel_configs:
+      - target_label: instance
+        replacement: 192.168.10.20:9100
+  - job_name: node_unraid_192_168_10_10
+    static_configs:
+      - targets: ['192.168.10.10:9100']
+        labels: { alias: 'unraid-tower' }
+
+  - job_name: node_vm_devops_192_168_5_131
+    static_configs:
+      - targets: ['192.168.5.131:9100']
+        labels: { alias: 'vm-devops' }
+
+  - job_name: node_hostinger_31_170_165_94
+    static_configs:
+      - targets: ['31.170.165.94:9100']
+        labels: { alias: 'hostinger-vps' }
+
+  # --- Blackbox ICMP (ping) ---
+  - job_name: bb_icmp
+    metrics_path: /probe
+    params: { module: [icmp] }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    static_configs:
+      - targets:
+          - '192.168.10.10'     # unraid
+          - '192.168.5.131'    # vm devops
+          - '192.168.10.1'      # udm pro
+          - '31.170.165.94'    # hostinger vps
+
+  # --- Blackbox TCP (port checks) ---
+  - job_name: bb_tcp
+    metrics_path: /probe
+    params: { module: [tcp_connect] }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    static_configs:
+      - targets:
+          - '192.168.10.1:443'        # UDM Pro HTTPS
+          - '31.170.165.94:22'       # VPS SSH
+
+  # --- Blackbox HTTP (file-based service discovery like your old config) ---
+  - job_name: bb_http
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/*.yml
+
+  # Same node-exporter endpoint as node_wazuh_server, but force instance label to match LAN IP
+
+  - job_name: windows_192_168_1_253
+    static_configs:
+      - targets: ['192.168.1.253:9182']
+        labels: { alias: 'win11-vm' }

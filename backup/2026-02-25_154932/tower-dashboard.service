@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate Unraid Tower Dashboard HTML (Prometheus)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wazuh-admin
+Group=wazuh-admin
+WorkingDirectory=/opt/monitoring
+ExecStart=/opt/monitoring/prom_tower_dashboard_html.sh 192.168.10.10:9100 100

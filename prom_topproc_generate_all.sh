@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROM="http://127.0.0.1:9090"
+N="${1:-100}"
+
+# Ensure reports dir perms
+install -d -m 0755 -o wazuh-admin -g wazuh-admin /opt/monitoring/reports
+
+# Wait for Prometheus
+curl -fsS -m 5 "$PROM/-/ready" >/dev/null
+
+# Generate Topproc HTML
+/opt/monitoring/prom_topproc_html.sh 192.168.5.131:9100 "$N"
+/opt/monitoring/prom_topproc_html.sh 192.168.10.10:9100 "$N"
+
+# Generate Tower HTML
+/opt/monitoring/prom_tower_html.sh 192.168.10.10:9100 "$N"
+
+# Optional: dot-IP symlinks for backwards compatibility
+cd /opt/monitoring/reports
+ln -sf topproc_192_168_10_10_9100.html "topproc_192.168.10.10_9100.html"
+ln -sf topproc_192_168_5_131_9100.html  "topproc_192.168.5.131_9100.html"
+ln -sf tower_192_168_10_10_9100.html    "tower_192.168.10.10_9100.html"
+
+# Make sure static server can read files
+chown -R wazuh-admin:wazuh-admin /opt/monitoring/reports
+find /opt/monitoring/reports -maxdepth 1 -type f -name '*.html' -exec chmod 0644 {} +

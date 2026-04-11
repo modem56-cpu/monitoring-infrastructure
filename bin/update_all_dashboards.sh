@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Refresh local extras for the Wazuh host (10.20) before generating pages
+if [ -x /usr/local/bin/tower_textfile_extras_local.sh ]; then
+  /usr/local/bin/tower_textfile_extras_local.sh || true
+fi
+if [ -x /usr/local/bin/tower_ssh_sessions_local.sh ]; then
+  /usr/local/bin/tower_ssh_sessions_local.sh || true
+fi
+
+targets=(
+  "192.168.10.10:9100"
+  "192.168.10.20:9100"
+  "192.168.5.131:9100"
+  "192.168.10.24:9100"
+)
+
+for t in "${targets[@]}"; do
+  /opt/monitoring/bin/prom_tower_dashboard_html.sh "$t"
+done
+
+# Windows VM dashboard (textfile metrics via windows_exporter)
+if [ -x /opt/monitoring/bin/prom_windows_html_192_168_1_253.sh ]; then
+  /opt/monitoring/bin/prom_windows_html_192_168_1_253.sh || true
+fi
+
+# VM-MS (31.170.165.94) via SSH collector + HTML page
+if [ -x /opt/monitoring/bin/collect_vm_ms_ssh.sh ]; then
+  sudo -u wazuh-admin /opt/monitoring/bin/collect_vm_ms_ssh.sh || true
+fi
+if [ -x /opt/monitoring/bin/prom_vps_html_31_170_165_94.sh ]; then
+  /opt/monitoring/bin/prom_vps_html_31_170_165_94.sh || true
+fi
+
+if [ -x /usr/local/bin/patch_reports_wazuh_ssh_table.sh ]; then
+  /usr/local/bin/patch_reports_wazuh_ssh_table.sh || true
+fi

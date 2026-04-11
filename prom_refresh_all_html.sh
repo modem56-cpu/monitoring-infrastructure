@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROM="http://127.0.0.1:9090"
+TOPN="100"
+
+# Wait for Prometheus
+curl -fsS -m 5 "$PROM/-/ready" >/dev/null
+
+# Ensure dirs
+install -d -m 0755 -o wazuh-admin -g wazuh-admin /opt/monitoring/reports
+install -d -m 0755 /opt/monitoring/textfile_collector
+
+# Update local textfile metrics for Wazuh host (192.168.10.20)
+# (these feed sys_topproc_* for instance=192.168.10.20:9100)
+if [[ -x /opt/monitoring/bin/sys-topproc-prom.sh ]]; then
+  /opt/monitoring/bin/sys-topproc-prom.sh "$TOPN" || true
+fi
+
+# Regenerate HTML dashboards
+/opt/monitoring/prom_topproc_generate_all.sh "$TOPN" || true
+/opt/monitoring/prom_vm_dashboard_html.sh 192.168.5.131:9100 "$TOPN" || true
+/opt/monitoring/prom_vm_dashboard_html.sh 192.168.10.20:9100 "$TOPN" || true
+/opt/monitoring/prom_tower_dashboard_html.sh 192.168.10.10:9100 "$TOPN" || true
+
+# Keep legacy dot filenames working
+cd /opt/monitoring/reports
+ln -sf vm_dashboard_192_168_10_20_9100.html "vm_dashboard_192.168.10.20_9100.html" 2>/dev/null || true
+ln -sf vm_dashboard_192_168_5_131_9100.html  "vm_dashboard_192.168.5.131_9100.html" 2>/dev/null || true
+ln -sf tower_192_168_10_10_9100.html         "tower_192.168.10.10_9100.html"         2>/dev/null || true
+
+# Permissions so http.server can serve them
+chown -R wazuh-admin:wazuh-admin /opt/monitoring/reports
+chmod 0755 /opt/monitoring/reports
+find /opt/monitoring/reports -maxdepth 1 -type f -name '*.html' -exec chmod 0644 {} \; 2>/dev/null || true
+
+# Ensure CPU tables are fully populated (MEM/RSS/Command) and deduped
+/usr/local/bin/fix_top_cpu_tables.sh || true
+/opt/monitoring/bin/prom_tower_dashboard_html.sh 192.168.10.24:9100 "$TOPN" || true
