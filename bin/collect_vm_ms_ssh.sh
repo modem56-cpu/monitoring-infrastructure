@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="31.170.165.94"
+HOST="${VPS_HOST:-10.253.2.22}"
 USER="metrics"
 KEY="/opt/monitoring/sshkeys/vm_ms_metrics_ed25519"
 KNOWN="/opt/monitoring/sshkeys/known_hosts"
 
 OUTDIR="/opt/monitoring/textfile_collector"
-OUT="$OUTDIR/vps_${HOST//./_}.prom"
-TMP="$(mktemp "$OUTDIR/.vps_${HOST//./_}.prom.tmp.XXXXXX")"
+OUT="$OUTDIR/vps_movement_strategy.prom"
+TMP="$(mktemp "$OUTDIR/.vps_movement_strategy.prom.tmp.XXXXXX")"
 
 mkdir -p "$OUTDIR"
 touch "$KNOWN"

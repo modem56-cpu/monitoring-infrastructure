@@ -1,0 +1,59 @@
+<group name="prometheus,">
+
+  <rule id="100300" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="source">^prometheus$</field>
+    <description>Prometheus: $(alertname) on $(instance)</description>
+    <group>prometheus,monitoring,</group>
+  </rule>
+
+  <rule id="100301" level="12">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^NodeDown$</field>
+    <description>CRITICAL: Node $(instance) is DOWN</description>
+    <group>prometheus,availability,</group>
+  </rule>
+
+  <rule id="100302" level="8">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^HighCPU$</field>
+    <description>WARNING: High CPU on $(instance) — $(summary)</description>
+    <group>prometheus,performance,</group>
+  </rule>
+
+  <rule id="100303" level="7">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^HighCPUProcess$</field>
+    <description>WARNING: High CPU process on $(instance) — $(summary)</description>
+    <group>prometheus,performance,process,</group>
+  </rule>
+
+  <rule id="100304" level="8">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^MemoryPressure$</field>
+    <description>WARNING: Memory pressure on $(instance) — $(summary)</description>
+    <group>prometheus,performance,</group>
+  </rule>
+
+  <rule id="100305" level="10">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^DiskAlmostFull$</field>
+    <description>CRITICAL: Disk almost full on $(instance) — $(summary)</description>
+    <group>prometheus,storage,</group>
+  </rule>
+
+  <rule id="100306" level="6">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^SwapPressure$</field>
+    <description>WARNING: Swap pressure on $(instance) — $(summary)</description>
+    <group>prometheus,performance,</group>
+  </rule>
+
+  <rule id="100307" level="3">
+    <if_sid>100300</if_sid>
+    <field name="alertname">^SSHSession$</field>
+    <description>INFO: SSH session detected — $(summary)</description>
+    <group>prometheus,ssh,audit,</group>
+  </rule>
+
+</group>

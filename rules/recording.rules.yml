@@ -1,0 +1,48 @@
+groups:
+- name: recording_cpu
+  interval: 60s
+  rules:
+  - record: instance:cpu_busy_percent:avg5m
+    expr: (1 - avg by(instance, alias) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
+
+  - record: instance:cpu_busy_percent:avg1h
+    expr: (1 - avg by(instance, alias) (rate(node_cpu_seconds_total{mode="idle"}[1h]))) * 100
+
+- name: recording_memory
+  interval: 60s
+  rules:
+  - record: instance:memory_used_percent
+    expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+  - record: instance:swap_used_percent
+    expr: ((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes) * 100
+
+- name: recording_disk
+  interval: 60s
+  rules:
+  - record: instance:rootfs_used_percent
+    expr: (1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})) * 100
+
+  - record: instance:disk_io_read_bytes_rate:5m
+    expr: sum by(instance) (rate(node_disk_read_bytes_total{device!~"loop.*|ram.*"}[5m]))
+
+  - record: instance:disk_io_write_bytes_rate:5m
+    expr: sum by(instance) (rate(node_disk_written_bytes_total{device!~"loop.*|ram.*"}[5m]))
+
+- name: recording_network
+  interval: 60s
+  rules:
+  - record: instance:net_rx_bytes_rate:5m
+    expr: sum by(instance) (rate(node_network_receive_bytes_total{device!~"lo|docker.*|br-.*|veth.*"}[5m]))
+
+  - record: instance:net_tx_bytes_rate:5m
+    expr: sum by(instance) (rate(node_network_transmit_bytes_total{device!~"lo|docker.*|br-.*|veth.*"}[5m]))
+
+- name: recording_availability
+  interval: 60s
+  rules:
+  - record: instance:uptime_days
+    expr: (time() - node_boot_time_seconds) / 86400
+
+  - record: job:up_ratio:5m
+    expr: avg by(job) (avg_over_time(up[5m]))

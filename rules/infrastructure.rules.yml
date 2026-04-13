@@ -1,0 +1,140 @@
+groups:
+- name: infrastructure
+  rules:
+
+  - alert: NodeDown
+    expr: up{job=~"node_.*|windows_.*"} == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Node {{ $labels.instance }} ({{ $labels.alias }}) is down"
+
+  - alert: HighCPU
+    expr: sys_sample_cpu_busy_percent > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "CPU at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: HighCPU_NodeExporter
+    expr: (1 - avg by(instance, alias) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "CPU at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: HighCPUProcess
+    expr: (sys_topproc_pcpu_percent > 90 or sys_topproc_cpu_percent > 90)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Process {{ $labels.comm }} (pid={{ $labels.pid }}) at {{ $value | printf \"%.0f\" }}% on {{ $labels.instance }}"
+
+  - alert: MemoryPressure
+    expr: (sys_sample_mem_used_bytes / sys_sample_mem_total_bytes) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Memory at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: MemoryPressure_NodeExporter
+    expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Memory at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: SwapPressure
+    expr: (sys_sample_swap_used_bytes / sys_sample_swap_total_bytes) * 100 > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Swap at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: DiskAlmostFull
+    expr: sys_sample_rootfs_used_percent > 85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: DiskCritical
+    expr: sys_sample_rootfs_used_percent > 95
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "CRITICAL: Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: DiskAlmostFull_NodeExporter
+    expr: (1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})) * 100 > 85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: VPS_Down
+    expr: vps_ssh_up == 0
+    for: 3m
+    labels:
+      severity: critical
+    annotations:
+      summary: "VPS {{ $labels.target }} ({{ $labels.host }}) SSH collector failed"
+
+  - alert: VPS_HighCPU
+    expr: vps_cpu_busy_percent > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "VPS CPU at {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}"
+
+  - alert: VPS_DiskFull
+    expr: vps_rootfs_used_percent > 85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "VPS disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}"
+
+  - alert: WindowsCPUHigh
+    expr: (1 - avg by(instance, alias) (rate(windows_cpu_time_total{mode="idle"}[5m]))) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Windows CPU at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  - alert: WindowsDiskFull
+    expr: (1 - (windows_logical_disk_free_bytes{volume="C:"} / windows_logical_disk_size_bytes{volume="C:"})) * 100 > 85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Windows C: at {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+
+  # --- UDM Pro (SNMP) ---
+  - alert: UDM_Down
+    expr: up{job="snmp_udm_pro"} == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "UDM Pro ({{ $labels.instance }}) SNMP unreachable"
+
+  - alert: UDM_HighInterfaceUtilization
+    expr: rate(ifHCInOctets{job="snmp_udm_pro"}[5m]) * 8 > 800000000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "UDM Pro interface {{ $labels.ifDescr }} receiving > 800Mbps"

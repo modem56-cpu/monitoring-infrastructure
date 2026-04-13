@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROM="http://127.0.0.1:9090"
 OUT="/opt/monitoring/reports/vps_movement_strategy.html"
-TARGET="10.253.2.22"
+TARGET="31.170.165.94"
 ALIAS="movement-strategy"
 
 python3 - <<'PY'
@@ -11,7 +11,7 @@ import json, urllib.parse, urllib.request, datetime, html, math
 
 PROM="http://127.0.0.1:9090"
 OUT="/opt/monitoring/reports/vps_movement_strategy.html"
-TARGET="10.253.2.22"
+TARGET="31.170.165.94"
 ALIAS="movement-strategy"
 
 def q(query: str):

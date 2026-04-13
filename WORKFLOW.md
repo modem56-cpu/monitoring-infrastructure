@@ -9,10 +9,18 @@
 
   wazuh-server (192.168.10.20) — Docker stack:
   ┌─────────────────────────────────────────────────┐
-  │  node-exporter container (:9100)                │
-  │    mounts /opt/monitoring/textfile_collector:ro  │
-  │    Prometheus scrapes via Docker DNS             │
-  │    (node-exporter:9100 → relabel 192.168.10.20) │
+  │  prometheus (:9090)  — 23 scrape targets        │
+  │  grafana (:3000)     — 10 dashboards            │
+  │  alertmanager (:9093) — webhook receiver         │
+  │  node-exporter (:9100, internal)                │
+  │  blackbox-exporter   — ICMP/TCP/HTTP probes     │
+  │  snmp-exporter       — UDM Pro SNMP (if_mib)    │
+  │  cadvisor (:8080)    — per-container metrics     │
+  │                                                 │
+  │  mounts /opt/monitoring/textfile_collector:ro    │
+  │  Prometheus scrapes via Docker DNS              │
+  │  (node-exporter:9100 → relabel 192.168.10.20)  │
+  │  Networks: monitoring + akvorado_default         │
   └─────────────────────────────────────────────────┘
 
   Each Linux host runs locally:
@@ -25,12 +33,12 @@
   └─────────────────────────────────────────┘
           │ node_exporter reads textfile dir
           ▼
-  Prometheus scrapes :9100  →  TSDB storage
+  Prometheus scrapes :9100  →  TSDB storage (90-day retention)
 
-  VPS (31.170.165.94) — SSH pull model:
+  VPS (31.170.165.94) — SSH pull via WireGuard VPN:
   ┌───────────────────────────────────────────────┐
   │  collect_vm_ms_ssh.sh (timeout 30s)           │
-  │    ssh metrics@31.170.165.94 (forced command) │
+  │    ssh metrics@10.253.2.22 (VPN, wg2 tunnel)  │
   │    → vps_31_170_165_94.prom                   │
   │    StrictHostKeyChecking=yes                   │
   │    known_hosts: /opt/monitoring/sshkeys/       │
@@ -43,6 +51,94 @@
   │  + textfile: win_sessions.prom        │
   │  Prometheus scrapes → windows_* TSDB  │
   └───────────────────────────────────────┘
+
+  UDM Pro (192.168.10.1):
+  ┌───────────────────────────────────────────┐
+  │  SNMP (if_mib) → snmp-exporter           │
+  │  Blackbox: ICMP + TCP + HTTP              │
+  │    (http_2xx_selfsigned for HTTPS)        │
+  │  Syslog → Wazuh (UDP 514)                │
+  │    Custom decoder: udm_firewall.xml       │
+  │    Custom rules: 100400-100407            │
+  └───────────────────────────────────────────┘
+
+  Google Workspace (every 5min):
+  ┌───────────────────────────────────────────┐
+  │  gworkspace-collector timer               │
+  │    SA: gam-project@...gserviceaccount.com │
+  │    → Login events, admin actions          │
+  │    → Drive events, external sharing       │
+  │    → 50GB storage enforcement             │
+  │    → Per-shared-drive metrics (28 drives) │
+  │    → Org storage: ~2.84 TB / 3.67 TB     │
+  └───────────────────────────────────────────┘
+
+  Akvorado Flow Pipeline:
+  ┌───────────────────────────────────────────┐
+  │  3 scrape targets:                        │
+  │    inlet, outlet, orchestrator            │
+  │  6 alert rules + 4 recording rules        │
+  │  Wazuh bridge: AkvoradoDown, NoFlows      │
+  └───────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║              ALERTING & SIEM                                     ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Prometheus (30 alerting rules, 19 recording rules):
+  ┌───────────────────────────────────────────────────────────────┐
+  │  blackbox.rules.yml      — UDM/endpoint reachability          │
+  │  infrastructure.rules.yml — node down, disk, memory, CPU      │
+  │  containers.rules.yml    — Docker container health             │
+  │  akvorado.rules.yml      — flow pipeline health                │
+  │                                                               │
+  │  → Alertmanager (:9093)  — webhook receiver                    │
+  │  → prom-to-wazuh.sh (60s) — 7 alert types to Wazuh SIEM      │
+  └───────────────────────────────────────────────────────────────┘
+
+  Wazuh SIEM (6 agents: 000, 003, 004, 005, 006, 007):
+  ┌───────────────────────────────────────────────────────────────┐
+  │  Custom rules:                                                │
+  │    prometheus_monitoring.xml  (100300-100307)                  │
+  │    udm_firewall.xml          (100400-100407)                  │
+  │    google_workspace.xml      (100500-100508)                  │
+  │                                                               │
+  │  auditd: 20+ rules (identity, SSH, priv-esc, Docker, etc.)   │
+  │  FIM: SSH keys, crontabs, WireGuard, docker-compose, prom.yml │
+  │  Active Response: firewall-drop on brute force (1hr block)    │
+  │  Vulnerability Detection: 60m feed updates                    │
+  │  SCA: CIS benchmarks, 12h interval                           │
+  │  UDM Pro syslog: UDP 514, custom decoder/rules                │
+  └───────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║        GRAFANA DASHBOARDS (10)                                    ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  http://192.168.10.20:3000
+
+  ┌───────────────────────────────────────────────────────────────┐
+  │  1. Fleet Overview (/d/fleet-overview)                        │
+  │     All nodes, CPU/mem/disk bars, Docker, APIs, WAN, SSH,     │
+  │     Google Workspace at-a-glance                              │
+  │                                                               │
+  │  2. Node Exporter Full (/d/node-exporter-full) — 31 panels   │
+  │  3. Windows Exporter (/d/windows-exporter) — 22 panels       │
+  │  4. Movement Strategy VPS (/d/vps-movement-strategy)          │
+  │  5. UDM Pro (/d/udm-pro) — SNMP interfaces, traffic          │
+  │  6. Docker Containers & APIs (/d/docker-containers)           │
+  │     cAdvisor + API health probes                              │
+  │  7. Akvorado Flow Pipeline (/d/akvorado) — 12 panels         │
+  │     Inlet/outlet/orchestrator, flow rates, Kafka, ClickHouse  │
+  │  8. Google Workspace (/d/google-workspace)                    │
+  │     Users, storage, shared drives, events, 50GB enforcement   │
+  │  9. HTML Reports Hub (/d/html-reports)                        │
+  │     Embedded HTML dashboards with collapsible rows            │
+  │ 10. Export Reports (/d/export-reports)                        │
+  │     JSON download for AI analysis                             │
+  └───────────────────────────────────────────────────────────────┘
 
 
 ╔══════════════════════════════════════════════════════════════════╗
@@ -116,12 +212,42 @@
 
 
 ╔══════════════════════════════════════════════════════════════════╗
+║              JSON REPORT GENERATOR                                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  /opt/monitoring/generate-report.py (every 5min via monitoring-report timer)
+  → http://192.168.10.20:8088/monitoring_report.json
+
+  Contains: node status, system metrics, top processes, network I/O,
+  Docker containers, API health, UDM Pro, Akvorado, Google Workspace,
+  SSH sessions, Wazuh agents
+
+
+╔══════════════════════════════════════════════════════════════════╗
 ║              SERVING                                             ║
 ╚══════════════════════════════════════════════════════════════════╝
 
   Browser  →  http://192.168.10.20:8088/tower_*.html
               Cache-Control: no-cache (always fresh)
               Files: /opt/monitoring/reports/
+
+  Grafana  →  http://192.168.10.20:3000/d/<dashboard-id>
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║              SYSTEMD TIMERS (10)                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  │ Timer                      │ Interval │ Purpose                       │
+  │ sys-sample-prom            │ 15s      │ System sample metrics          │
+  │ sys-topproc                │ 60s      │ Top process metrics            │
+  │ prom-to-wazuh              │ 60s      │ Prometheus → Wazuh bridge      │
+  │ prom-html-dashboards       │ 3min     │ Base HTML generation           │
+  │ prom-refresh-html          │ 3min     │ VM dashboard + patches         │
+  │ topproc-generate           │ 60s      │ Top process HTML               │
+  │ gworkspace-collector       │ 5min     │ Google Workspace metrics       │
+  │ monitoring-report          │ 5min     │ JSON report generation         │
+  │ akvorado-mesh-to-wazuh     │ 5min     │ Akvorado → Wazuh bridge        │
 
 
 ╔══════════════════════════════════════════════════════════════════╗
