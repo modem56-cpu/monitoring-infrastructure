@@ -1,19 +1,20 @@
-# Prometheus Monitoring Platform
+# Yokly/Agapay Infrastructure Monitoring Platform
 
-On-premise infrastructure monitoring using Prometheus, Grafana, Wazuh SIEM, node_exporter, custom textfile collectors, and auto-generated HTML dashboards.
+On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado network flow analysis, custom textfile collectors, and auto-generated HTML dashboards. Managed by Brian Monte (IT Admin).
 
-**Hub:** `192.168.10.20` (wazuh-server)  
+**Hub:** `192.168.10.20` (wazuh-server, Ubuntu 24.04, 8 GB RAM, 4 CPU)  
 **Grafana:** `http://192.168.10.20:3000`  
+**Akvorado Console:** `http://192.168.10.20:8082`  
 **HTML Dashboard:** `http://192.168.10.20:8088/`  
 **JSON Report:** `http://192.168.10.20:8088/monitoring_report.json`  
-**Refresh interval:** 3 minutes (systemd timers)  
+**Refresh interval:** 3–5 minutes (systemd timers)  
 **Repository:** `https://github.com/modem56-cpu/monitoring-infrastructure`
 
 ---
 
-## Monitored Endpoints
+## Monitored Infrastructure
 
-| Host | IP | Role | Exporter | Wazuh Agent | Health |
+| Host | IP | Role | Exporter | Wazuh Agent | Status |
 |------|----|------|----------|-------------|--------|
 | wazuh-server | 192.168.10.20 | SIEM / Monitoring Hub | node_exporter :9100 (Docker) + sys_sample | 000 (manager) | UP |
 | unraid-tower | 192.168.10.10 | NAS / Hypervisor | node_exporter :9100 (native) | 005 | UP |
@@ -21,7 +22,73 @@ On-premise infrastructure monitoring using Prometheus, Grafana, Wazuh SIEM, node
 | win11-vm | 192.168.1.253 | Windows Endpoint | windows_exporter :9182 | 003 | UP |
 | movement-strategy | 31.170.165.94 / VPN 10.253.2.22 | Hostinger VPS | SSH collector (vps_* metrics) | 006 | UP |
 | fathom-vault | 192.168.10.24 | Ubuntu VM | node_exporter + sys_sample + sys_topproc | 007 | UP |
-| UDM Pro | 192.168.10.1 | Gateway / Firewall | SNMP (if_mib) + blackbox + syslog->Wazuh | syslog only | UP |
+| UDM Pro | 192.168.10.1 | Gateway / Firewall | SNMP (if_mib) + blackbox + syslog→Wazuh + ARP→Akvorado | syslog only | UP |
+| Google Workspace | cloud | SaaS (Yokly/Agapay) | gworkspace-collector v2 (API) | — | UP |
+
+**LAN Devices (via UDM ARP Collector):** 90–94 active devices across 4 VLANs enriching Akvorado flow data with hostnames, VLAN, and vendor.
+
+---
+
+## Platform Components
+
+### Prometheus Monitoring
+- **23 scrape targets** — 7 hosts + SNMP + blackbox + cAdvisor + Akvorado + self
+- **30 alerting rules** across `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`
+- **19 recording rules** in `recording.rules.yml`
+- **90-day retention**, admin API enabled
+
+### Grafana Dashboards (10)
+
+| Dashboard | URL | Description |
+|-----------|-----|-------------|
+| Fleet Overview | `/d/fleet-overview` | All nodes, CPU/mem/disk, Docker, APIs, WAN, SSH, Google Workspace |
+| Node Exporter Full | `/d/node-exporter-full` | 31-panel Linux deep-dive |
+| Windows Exporter | `/d/windows-exporter` | 22-panel Windows dashboard |
+| Movement Strategy VPS | `/d/vps-movement-strategy` | SSH-collected VPS metrics |
+| UDM Pro | `/d/udm-pro` | SNMP interfaces, traffic, status |
+| Docker Containers & APIs | `/d/docker-containers` | cAdvisor + API health probes |
+| Akvorado Flow Pipeline | `/d/akvorado` | Inlet/outlet/orchestrator, flow rates, Kafka, ClickHouse (12 panels) |
+| Google Workspace | `/d/google-workspace` | Users, storage, shared drives, events, 50GB enforcement |
+| HTML Reports Hub | `/d/html-reports` | Embedded HTML dashboards |
+| Export Reports | `/d/export-reports` | JSON download for AI analysis |
+
+### Akvorado Network Flow Analysis
+
+| Component | Details |
+|-----------|---------|
+| Console | `http://192.168.10.20:8082` — flow search, top talkers, protocol analysis |
+| Flow sources | UDM Pro (IPFIX :4739, NetFlow :2055, sFlow :6343) |
+| Pipeline | UDM Pro → Inlet → Kafka → ClickHouse (flows_5m0s, flows_1h0m0s) |
+| Network enrichment | Static subnets (LAN/SecurityApps/Dev/VLAN4) + per-device /32 from UDM ARP |
+| Device enrichment | 93 devices: hostname (rDNS), VLAN tenant, vendor (OUI) |
+| Dictionary | 5.4M entries in ClickHouse `default.networks` (1.21 GiB) |
+| Console fields | Src/Dst Net Name (hostname), Src/Dst Net Tenant (VLAN), Src/Dst Net Role (vendor) |
+
+### Wazuh SIEM
+
+| Component | Details |
+|-----------|---------|
+| Active agents | 6 (000 manager, 003–007) |
+| Custom rules | 100300–100307 (Prometheus), 100400–100407 (UDM), 100500–100508 (Google Workspace) |
+| auditd | 20+ rules: identity, SSH keys, priv-esc, root, cron, systemd, Docker, WireGuard, kernel |
+| FIM | /root/.ssh, crontabs, /etc/wireguard, docker-compose.yml, prometheus.yml |
+| Active Response | firewall-drop on SSH brute force (rule 5763, 1hr block) |
+| Bridges | prom-to-wazuh.sh (60s, 7 alert types), akvorado-mesh-to-wazuh (5min) |
+| Vulnerability Detection | Enabled, 60m feed updates |
+| SCA | CIS benchmarks, 12h interval |
+
+### Google Workspace Integration (v2)
+
+| Setting | Value |
+|---------|-------|
+| Collector version | v2 (group-based extshare enforcement, April 15 2026) |
+| Org | Yokly / Agapay (91 active users, 95 total) |
+| APIs | Admin Reports v1, Directory v1, Alert Center v1beta1, Drive v3 |
+| Org storage | ~1.16 TB used |
+| Shared drives | 29 drives |
+| 50GB enforcement | Active; exemptions for 6 users |
+| ExtShare model | Group-based BLOCKED (hrou, itdevou, marketingou, trainingou) + exception OU |
+| ExtShare state (Apr 15) | 58 unrestricted, 22 blocked, 3 exception OU |
 
 ---
 
@@ -29,119 +96,81 @@ On-premise infrastructure monitoring using Prometheus, Grafana, Wazuh SIEM, node
 
 ```
 monitoring-infrastructure/
-├── README.md                  # This file
-├── ARCHITECTURE.md            # System architecture and data flow
-├── WORKFLOW.md                # ASCII workflow diagram
-├── SCRIPTS.md                 # Script inventory and responsibilities
-├── ACCOMPLISHMENTS.md         # Leadership accomplishment report
-├── TODO.md                    # Next steps and roadmap
-├── wazuh-siem-integration.md  # Wazuh SIEM integration plan
-├── prometheus.yml             # Prometheus configuration
-├── docker-compose.yml         # Docker stack
-├── alertmanager.yml           # Alertmanager configuration
-├── blackbox.yml               # Blackbox exporter config
-├── rules/                     # Prometheus alerting & recording rules
-├── targets/                   # Prometheus file_sd targets
-├── bin/                       # Collection, generation, and utility scripts
-├── backup/                    # Configuration backups
-└── *.sh                       # Root-level generation and patch scripts
+├── README.md                    # This file — quick reference
+├── ARCHITECTURE.md              # System architecture and data flow
+├── WORKFLOW.md                  # End-to-end data flow diagrams
+├── SCRIPTS.md                   # Script inventory
+├── ACCOMPLISHMENTS.md           # Leadership accomplishment report
+├── TODO.md                      # Roadmap and pending items
+├── wazuh-siem-integration.md    # Wazuh SIEM integration notes
+├── prometheus.yml               # Prometheus configuration
+├── docker-compose.yml           # Docker stack
+├── alertmanager.yml             # Alertmanager configuration
+├── blackbox.yml                 # Blackbox exporter config
+├── rules/                       # Prometheus alerting & recording rules
+├── targets/                     # Prometheus file_sd targets
+├── bin/                         # Collection, generation, utility scripts
+│   ├── udm-arp-collector.py     # UDM ARP → Prometheus + Akvorado JSON
+│   ├── json-server.py           # HTTP/1.0 server for Akvorado network-sources
+│   ├── gworkspace-collector-v2.py
+│   └── ...
+├── data/                        # Live data files (network_devices.json)
+├── textfile_collector/          # Prometheus textfile metrics (*.prom)
+├── reports/                     # Generated HTML dashboards
+└── *.sh / *.py                  # Deploy and utility scripts
 ```
 
 ---
 
-## Quick Reference
-
-### Grafana Dashboards
-
-| Dashboard | URL |
-|-----------|-----|
-| Fleet Overview | `http://192.168.10.20:3000/d/fleet-overview` |
-| Node Exporter Full | `http://192.168.10.20:3000/d/node-exporter-full` |
-| Windows Exporter | `http://192.168.10.20:3000/d/windows-exporter` |
-| Movement Strategy VPS | `http://192.168.10.20:3000/d/vps-movement-strategy` |
-| UDM Pro | `http://192.168.10.20:3000/d/udm-pro` |
-| Docker Containers & APIs | `http://192.168.10.20:3000/d/docker-containers` |
-| Akvorado Flow Pipeline | `http://192.168.10.20:3000/d/akvorado` |
-| Google Workspace | `http://192.168.10.20:3000/d/google-workspace` |
-| HTML Reports Hub | `http://192.168.10.20:3000/d/html-reports` |
-| Export Reports | `http://192.168.10.20:3000/d/export-reports` |
-
-### HTML Dashboard URLs
-
-| Host | URL |
-|------|-----|
-| wazuh-server (10.20) | `http://192.168.10.20:8088/tower_192_168_10_20_9100.html` |
-| fathom-vault (10.24) | `http://192.168.10.20:8088/tower_192_168_10_24_9100.html` |
-| vm-devops (5.131) | `http://192.168.10.20:8088/tower_192_168_5_131_9100.html` |
-| Unraid Tower (10.10) | `http://192.168.10.20:8088/tower_192_168_10_10_9100.html` |
-| Windows (1.253) | `http://192.168.10.20:8088/win_192_168_1_253_9182.html` |
-| VPS (165.94) | `http://192.168.10.20:8088/vps_31_170_165_94.html` |
-
-### Key Paths
+## Key Paths
 
 | Resource | Path |
 |----------|------|
-| HTML reports | `/opt/monitoring/reports/` |
-| Patch scripts | `/usr/local/bin/patch_reports_*.sh` |
-| Collection scripts | `/opt/monitoring/bin/` |
-| Textfile metrics | `/opt/monitoring/textfile_collector/` |
-| SSH keys (VPS) | `/opt/monitoring/sshkeys/` |
-| Prometheus config | `/opt/monitoring/prometheus.yml` (mounted into Docker) |
+| Prometheus config | `/opt/monitoring/prometheus.yml` |
 | Docker Compose | `/opt/monitoring/docker-compose.yml` |
 | Alerting rules | `/opt/monitoring/rules/` |
-| Recording rules | `/opt/monitoring/rules/recording.rules.yml` |
-| JSON report generator | `/opt/monitoring/generate-report.py` |
+| Collection scripts | `/opt/monitoring/bin/` |
+| Textfile metrics | `/opt/monitoring/textfile_collector/` |
+| Network devices JSON | `/opt/monitoring/data/network_devices.json` |
+| HTML reports | `/opt/monitoring/reports/` |
+| Akvorado config | `/opt/akvorado/config/akvorado.yaml` |
+| ClickHouse server.xml | `/opt/akvorado/docker/clickhouse/server.xml` |
+| Wazuh custom rules | `/var/ossec/etc/rules/` |
+| Wazuh custom decoders | `/var/ossec/etc/decoders/` |
 
-### Docker Stack
+---
 
-All core services run via Docker Compose on `192.168.10.20`:
-
-| Container | Port | Purpose |
-|-----------|------|---------|
-| `prometheus` | 9090 (localhost) | TSDB + scraping (90-day retention, admin API enabled) |
-| `grafana` | 3000 (LAN) | Historical dashboards (10 dashboards) |
-| `alertmanager` | 9093 (localhost) | Alert routing (webhook receiver) |
-| `node-exporter` | internal only | Local host metrics + textfile collector |
-| `blackbox-exporter` | 9115 | ICMP/TCP/HTTP probes (incl. http_2xx_selfsigned for UDM) |
-| `snmp-exporter` | 9116 | UDM Pro SNMP metrics |
-| `cadvisor` | 8080 | Per-container Docker metrics |
-
-Networks: `monitoring` + `akvorado_default`
-
-### Prometheus Stats
-
-| Stat | Value |
-|------|-------|
-| Scrape targets | 23 (22 up, 1 down when fathom offline) |
-| Alerting rules | 30 across blackbox, infrastructure, containers, akvorado |
-| Recording rules | 19 in recording.rules.yml |
-| Retention | 90 days |
-
-### Wazuh SIEM
-
-| Component | Details |
-|-----------|---------|
-| Active agents | 6 (000, 003, 004, 005, 006, 007) |
-| Custom decoders | udm_firewall.xml |
-| Custom rules | prometheus_monitoring.xml (100300-100307), udm_firewall.xml (100400-100407), google_workspace.xml (100500-100508) |
-| auditd rules | 20+ (identity, SSH keys, priv-esc, root commands, cron, systemd, Docker, WireGuard, kernel modules) |
-| FIM paths | /root/.ssh, crontabs, /etc/wireguard, docker-compose.yml, prometheus.yml |
-| Active Response | firewall-drop on SSH brute force (rule 5763, 1hr block) |
-| Vulnerability Detection | Enabled (60m feed updates) |
-| SCA | Enabled (12h interval, CIS benchmarks) |
-| UDM Pro syslog | UDP 514 from 192.168.10.1 |
-| Prom->Wazuh bridge | prom-to-wazuh.sh every 60s, 7 alert types |
-
-### Systemd Timers (10)
+## Systemd Timers (11)
 
 | Timer | Interval | Purpose |
 |-------|----------|---------|
-| sys-sample-prom | 15s | System sample metrics |
+| sys-sample-prom | 15s | System sample metrics (CPU/mem/net/disk) |
 | sys-topproc | 60s | Top process metrics |
-| prom-to-wazuh | 60s | Prometheus->Wazuh bridge |
-| prom-html-dashboards | 3min | Base HTML dashboard generation |
-| prom-refresh-html | 3min | VM dashboard + patches |
+| prom-to-wazuh | 60s | Prometheus → Wazuh SIEM bridge |
 | topproc-generate | 60s | Top process HTML generation |
-| gworkspace-collector | 5min | Google Workspace metrics |
+| prom-html-dashboards | 3min | Base HTML dashboard generation |
+| prom-refresh-html | 3min | VM dashboard + patch chain |
+| gworkspace-collector | 5min | Google Workspace metrics collection (v2) |
 | monitoring-report | 5min | JSON report generation |
-| akvorado-mesh-to-wazuh | 5min | Akvorado->Wazuh bridge |
+| akvorado-mesh-to-wazuh | 5min | Akvorado → Wazuh bridge |
+| **udm-arp-collector** | **5min** | **UDM ARP → Prometheus textfile + Akvorado JSON** |
+| device-json-server | always | Serves network_devices.json on :9117 for Akvorado |
+
+---
+
+## Docker Stack (core services on 192.168.10.20)
+
+| Container | Port | Purpose |
+|-----------|------|---------|
+| `prometheus` | 9090 (localhost) | TSDB + scraping, 90-day retention |
+| `grafana` | 3000 (LAN) | 10 dashboards |
+| `alertmanager` | 9093 (localhost) | Alert routing (webhook receiver) |
+| `node-exporter` | internal | Host metrics + textfile collector |
+| `blackbox-exporter` | 9115 | ICMP/TCP/HTTP probes |
+| `snmp-exporter` | 9116 | UDM Pro SNMP (if_mib) |
+| `cadvisor` | 8080 | Per-container Docker metrics |
+| `akvorado-inlet` | 4739/2055/6343 UDP | IPFIX/NetFlow/sFlow receiver |
+| `akvorado-orchestrator` | 8080 (internal) | Config + network enrichment |
+| `akvorado-console` | 8082 (LAN) | Flow analysis UI |
+| `akvorado-clickhouse` | 9000 (internal) | Flow storage (5.4M network entries) |
+| `akvorado-kafka` | 9092 (internal) | Flow message queue |

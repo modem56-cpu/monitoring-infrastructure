@@ -1,5 +1,10 @@
 # Sensitive files
 sshkeys/
+.env*
+*.json
+*.conf
+peer-*.conf
+gam-project-*.json
 
 # Runtime data
 logs/
@@ -13,3 +18,11 @@ textfile_collector/
 
 # Backup archives
 targets.bak.*.tgz
+
+# Screenshots and pasted text
+Screenshot*.png
+"Pasted text*.txt"
+Pasted\ text*.txt
+
+# Data files (runtime-generated)
+data/

@@ -63,23 +63,74 @@
   └───────────────────────────────────────────┘
 
   Google Workspace (every 5min):
-  ┌───────────────────────────────────────────┐
-  │  gworkspace-collector timer               │
-  │    SA: gam-project@...gserviceaccount.com │
-  │    → Login events, admin actions          │
-  │    → Drive events, external sharing       │
-  │    → 50GB storage enforcement             │
-  │    → Per-shared-drive metrics (28 drives) │
-  │    → Org storage: ~2.84 TB / 3.67 TB     │
-  └───────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────┐
+  │  gworkspace-collector v2 timer                 │
+  │    SA: gam-project@...gserviceaccount.com      │
+  │    APIs: Admin Reports v1, Directory v1,       │
+  │           Alert Center v1beta1, Drive v3       │
+  │    → Login/admin/drive audit events            │
+  │    → Per-user Drive/Gmail/Photos storage split │
+  │       (accounts:drive_used_quota_in_mb,        │
+  │        accounts:gmail_used_quota_in_mb,        │
+  │        accounts:gplus_photos_used_quota_in_mb) │
+  │    → Org totals: ~1.16 TB used / 95 users      │
+  │    → External sharing (group-based v2):        │
+  │       BLOCKED: hrou, itdevou, marketingou,     │
+  │                trainingou groups               │
+  │       EXCEPTION OU: SHARED-DRIVES-EXTERNAL     │
+  │       State (Apr 15): 58 unrestricted,         │
+  │                       22 blocked, 3 exception  │
+  │    → 50GB storage enforcement alerts           │
+  │    → 29 shared drives via quotaBytesUsed       │
+  │    → Security alerts via Alert Center API      │
+  └────────────────────────────────────────────────┘
+
+  UDM ARP Collector (every 5 min — udm-arp-collector.timer):
+  ┌────────────────────────────────────────────────────────┐
+  │  udm-arp-collector.py                                  │
+  │    SNMP ARP (OID 1.3.6.1.2.1.4.22.1.2)                │
+  │    + OUI vendor (/usr/share/ieee-data/oui.txt, 194K)   │
+  │    + rDNS hostname (socket.gethostbyaddr, 1s timeout)  │
+  │    90–94 devices across 4 VLANs:                       │
+  │      br0=LAN, br10=SecurityApps, br4=VLAN4, br5=Dev    │
+  │                                                        │
+  │  → network_devices.prom  (Prometheus textfile)         │
+  │      network_device_info{ip,mac,vlan,vendor,hostname}  │
+  │      network_device_count{vlan}                        │
+  │                                                        │
+  │  → network_devices.json  (Akvorado enrichment feed)    │
+  │      [{ip, hostname, vendor, vlan, vlan_id, mac}]      │
+  └────────────────────────────────────────────────────────┘
+         │
+         ▼  device-json-server.service (HTTP/1.0, :9117)
+  ┌────────────────────────────────────────────────────────┐
+  │  UFW allows 247.16.14.0/24 (akvorado bridge) → :9117   │
+  │  HTTP/1.0 (no keep-alive) prevents Go client           │
+  │  connection-reuse failures in orchestrator             │
+  └────────────────────────────────────────────────────────┘
 
   Akvorado Flow Pipeline:
-  ┌───────────────────────────────────────────┐
-  │  3 scrape targets:                        │
-  │    inlet, outlet, orchestrator            │
-  │  6 alert rules + 4 recording rules        │
-  │  Wazuh bridge: AkvoradoDown, NoFlows      │
-  └───────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────┐
+  │  UDM Pro → IPFIX/NetFlow/sFlow → Inlet (:4739/:2055)  │
+  │  → Kafka → ClickHouse (flows_5m0s, flows_1h0m0s)      │
+  │                                                        │
+  │  Orchestrator polls :9117 every 5 min:                 │
+  │    jq: .[] | {prefix: (.ip+"/32"), name: hostname,     │
+  │                tenant: .vlan, role: .vendor}            │
+  │  + static subnets: 192.168.1.0/24→LAN, etc.           │
+  │  → serves networks.csv (205 MB, 5.4M entries)          │
+  │  → ClickHouse default.networks dictionary auto-reloads │
+  │                                                        │
+  │  Flow enrichment at INSERT time (new flows only):      │
+  │    SrcNetName   = hostname  (e.g., Calvin-s-S23)       │
+  │    SrcNetTenant = VLAN     (e.g., LAN, SecurityApps)   │
+  │    SrcNetRole   = vendor   (e.g., ASUSTek)             │
+  │                                                        │
+  │  3 Prometheus scrape targets (inlet/outlet/orchestr.)  │
+  │  6 alert rules + 4 recording rules                     │
+  │  Wazuh bridge: AkvoradoDown, NoFlows (every 5min)      │
+  │  Console: http://192.168.10.20:8082                    │
+  └────────────────────────────────────────────────────────┘
 
 
 ╔══════════════════════════════════════════════════════════════════╗
@@ -238,16 +289,17 @@
 ║              SYSTEMD TIMERS (10)                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-  │ Timer                      │ Interval │ Purpose                       │
-  │ sys-sample-prom            │ 15s      │ System sample metrics          │
-  │ sys-topproc                │ 60s      │ Top process metrics            │
-  │ prom-to-wazuh              │ 60s      │ Prometheus → Wazuh bridge      │
-  │ prom-html-dashboards       │ 3min     │ Base HTML generation           │
-  │ prom-refresh-html          │ 3min     │ VM dashboard + patches         │
-  │ topproc-generate           │ 60s      │ Top process HTML               │
-  │ gworkspace-collector       │ 5min     │ Google Workspace metrics       │
-  │ monitoring-report          │ 5min     │ JSON report generation         │
-  │ akvorado-mesh-to-wazuh     │ 5min     │ Akvorado → Wazuh bridge        │
+  │ Timer                      │ Interval │ Purpose                            │
+  │ sys-sample-prom            │ 15s      │ System sample metrics               │
+  │ sys-topproc                │ 60s      │ Top process metrics                 │
+  │ prom-to-wazuh              │ 60s      │ Prometheus → Wazuh bridge           │
+  │ topproc-generate           │ 60s      │ Top process HTML                    │
+  │ prom-html-dashboards       │ 3min     │ Base HTML generation                │
+  │ prom-refresh-html          │ 3min     │ VM dashboard + patches              │
+  │ gworkspace-collector       │ 5min     │ Google Workspace metrics (v2)       │
+  │ monitoring-report          │ 5min     │ JSON report generation              │
+  │ akvorado-mesh-to-wazuh     │ 5min     │ Akvorado → Wazuh bridge             │
+  │ udm-arp-collector          │ 5min     │ UDM ARP → Prometheus + Akvorado JSON│
 
 
 ╔══════════════════════════════════════════════════════════════════╗

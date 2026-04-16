@@ -106,6 +106,54 @@ In April 2026, a comprehensive hardening pass resolved 15+ operational issues in
 17. **Recovered fathom-vaultserver VM after accidental removal** — VM was accidentally undefined from Unraid during cleanup. Restored from backup XML + NVRAM, verified disk integrity, restarted VM. Reinstalled all monitoring (node-exporter, Wazuh agent, sys_sample, sys_topproc, SSH session collector) from scratch.
 18. **Restored Wazuh manager after accidental agent install conflict** — Installing wazuh-agent on the manager host removed wazuh-manager package. Reinstalled manager, restored all custom rules (prometheus, UDM, Google Workspace, vmbackup), decoders, logcollector entries, and shared agent config. Agents re-registered with new IDs.
 
+### 19. Google Workspace Monitoring — Major Expansion (April 15, 2026)
+
+Complete rebuild of the Google Workspace collector and dashboard, adding org-level storage visibility, per-user Drive/Gmail/Photos breakdown, shared drive analytics, and group-based external sharing enforcement.
+
+#### Collector: v2 Deployment
+| Change | Detail |
+|--------|--------|
+| External sharing enforcement model | Migrated from OU name matching (`DEFAULT-BLOCKED`) to **group-based** enforcement (`hrou`, `itdevou`, `marketingou`, `trainingou` Google Groups) — more accurate, resilient to OU renaming |
+| Per-user storage split | Added `accounts:drive_used_quota_in_mb`, `accounts:gmail_used_quota_in_mb`, `accounts:gplus_photos_used_quota_in_mb` — correct `accounts:` namespace discovered through API enumeration; `gmail:used_quota_in_mb` was invalid and was silently returning 400 errors |
+| Org-level storage totals | `gworkspace_org_storage_{total,used,available}_bytes`, `gworkspace_org_storage_used_percent` — derived from per-user `accounts:total_quota_in_mb` sum (customer-level Reports API doesn't expose pool quota) |
+| Shared drive storage accuracy | Switched from `size` field (0 for all Google-native files) to `quotaBytesUsed` — this is the same field the Admin Console uses, capturing Docs/Sheets/Slides storage. Page cap raised from 10 to 50 pages (50k files) to cover large drives like Yokly USA (1.35 TB) |
+| Drive API scope | Added `drive.readonly` scope to service account for shared drive enumeration and file listing |
+
+#### New Prometheus Metrics (15 added)
+| Metric | Description |
+|--------|-------------|
+| `gworkspace_drive_only_bytes` | Per-user Drive storage (excl. Gmail and Photos) |
+| `gworkspace_gmail_usage_bytes` | Per-user Gmail storage |
+| `gworkspace_photos_usage_bytes` | Per-user Google Photos storage |
+| `gworkspace_org_storage_total_bytes` | Org total pooled quota (sum of per-user allocations) |
+| `gworkspace_org_storage_used_bytes` | Org total storage used |
+| `gworkspace_org_storage_available_bytes` | Org remaining storage |
+| `gworkspace_org_storage_used_percent` | Org storage utilisation % |
+| `gworkspace_org_drive_bytes` | Org Drive storage total |
+| `gworkspace_org_gmail_bytes` | Org Gmail storage total |
+| `gworkspace_org_photos_bytes` | Org Photos storage total |
+| `gworkspace_org_shared_drive_bytes` | Org shared drive storage (sampled via quotaBytesUsed) |
+| `gworkspace_org_personal_bytes` | Org personal Drive storage |
+| `gworkspace_shared_drives_total` | Total shared drives in org |
+| `gworkspace_shared_drive_size_bytes{drive}` | Per-drive storage (quotaBytesUsed) |
+| `gworkspace_shared_drive_files{drive}` | Per-drive file count |
+
+#### Dashboard Redesign
+- Reorganized all 29 panels into 9 **horizontal security sections** — each section has summary stats left-aligned with associated timeseries/tables inline to the right
+- Sections: Status Bar → Events → Storage Overview → Storage Per User → Storage Split → Shared Drives → ExtShare Stats → ExtShare Analysis → ExtShare Tables
+- Updated ExtShare panel queries for v2 group-based metrics (`exception_users` replacing `exception_authorized`/`exception_unauthorized` where applicable)
+
+#### Key Data (April 15, 2026)
+| Stat | Value |
+|------|-------|
+| Active users | 95 |
+| Total storage used | ~1.16 TB |
+| Shared drives | 29 |
+| Shared drive storage (sampled) | ~110 GB (Admin Console shows ~1.5 TB; gap is Google-native files in large drives — now fixed with quotaBytesUsed) |
+| ExtShare unrestricted | 58 users |
+| ExtShare blocked (group) | 22 users |
+| ExtShare exception OU | 3 users |
+
 ### 6. Version Control & Documentation
 - Initialized git repository at `/opt/monitoring/`
 - Connected to GitHub: `https://github.com/modem56-cpu/monitoring-infrastructure`
@@ -142,7 +190,7 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 
 ---
 
-## Metrics at a Glance (Current — April 13, 2026)
+## Metrics at a Glance (Current — April 15, 2026)
 
 | Stat | Value |
 |------|-------|
@@ -151,7 +199,7 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | Prometheus scrape targets | 23 (all UP) |
 | Prometheus alerting rules | 36 (incl. 6 vmbackup rules) |
 | Prometheus recording rules | 19 |
-| Grafana dashboards | 11 (incl. VM Backups) |
+| Grafana dashboards | 11 (incl. VM Backups, redesigned Google Workspace) |
 | Systemd timers | 10 |
 | Dashboard refresh interval | 3 minutes |
 | Prometheus retention | 90 days |
@@ -162,12 +210,27 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | Unraid VM backup monitoring | 4 VMs tracked: age, size, health, definition status |
 | VPS collection method | SSH forced command over WireGuard VPN, 30s timeout |
 | UDM Pro monitoring | SNMP + blackbox + syslog to Wazuh |
-| Google Workspace | Login/admin/drive events, 28 shared drives, 50GB enforcement → Wazuh |
+| Google Workspace | Login/admin/drive events, 29 shared drives, Drive/Gmail/Photos split, org storage totals, group-based extshare enforcement → Wazuh |
 | Akvorado | 3 scrape targets, 6 alert rules, 12-panel dashboard |
 | VM backup monitoring | Hourly check: backup age, size, health, missing VMs |
 | JSON report | Auto-refreshed every 5min for AI analysis |
 | Git repository | github.com/modem56-cpu/monitoring-infrastructure |
 | Automated since | February 2026 (hardened & expanded April 2026) |
+
+### 6. UDM ARP Collector + Akvorado Device Enrichment — April 15, 2026
+
+1. **Built UDM Pro ARP collector (SNMP + OUI + rDNS → Prometheus textfile)** — `udm-arp-collector.py` polls SNMP ARP table (OID 1.3.6.1.2.1.4.22.1.2) every 5 minutes via systemd timer. Enriches MAC with IEEE OUI vendor lookup (/usr/share/ieee-data/oui.txt, 194K entries) and reverse DNS hostname. Writes `network_device_info` and `network_device_count` metrics for 90–94 devices across 4 VLANs (LAN/SecurityApps/Dev/VLAN4). Output: `/opt/monitoring/textfile_collector/network_devices.prom`
+
+2. **Extended collector to also write Akvorado JSON feed** — `udm-arp-collector.py` now writes `/opt/monitoring/data/network_devices.json` (array of `{ip, hostname, vendor, vlan, vlan_id, mac}`). Served by `device-json-server.service` on port 9117 using HTTP/1.0 (no keep-alive) to prevent Go HTTP client connection reuse failures.
+
+3. **Wired Akvorado network-sources enrichment** — Added `network-sources.local-devices` to `/opt/akvorado/config/akvorado.yaml` pointing to `http://247.16.14.1:9117/network_devices.json`. jq transform maps each device to a /32 prefix entry with `name` (hostname), `tenant` (VLAN), `role` (vendor). Combined with static subnet `networks:` config, flows now show per-device hostnames and VLAN tenants.
+
+4. **Resolved three blocking issues along the way:**
+   - UFW blocked Docker containers (247.16.14.0/24) from reaching host port 9117 — added `ufw allow from 247.16.14.0/24 to any port 9117`
+   - Python `http.server` HTTP/1.1 keep-alive caused Go client `context deadline exceeded` on every alternate poll — replaced with HTTP/1.0 server (`json-server.py`)
+   - ClickHouse crash loop from oversized TTL merge on March 2026 system log part (202603_76500_258781_236, ~7 GB) — truncated `system.metric_log`, `trace_log`, `text_log`, `query_log`, `asynchronous_metric_log`; added `max_bytes_to_merge_at_max_space_in_pool = 1 GiB` to `server.xml`
+
+5. **Result: per-device flow enrichment live in Akvorado console** — `Src Net Name` shows hostnames (Calvin-s-S23, ServerPC, wazuh-server, Tower), `Src Net Tenant` shows VLAN, `Src Net Role` shows vendor. Verified via `dictGet` and `flows_5m0s` ClickHouse queries. Dictionary loaded with 5.4M elements (1.21 GiB).
 
 ## Incident Log
 

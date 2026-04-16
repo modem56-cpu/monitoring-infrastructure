@@ -1,0 +1,43 @@
+groups:
+- name: google_workspace
+  rules:
+
+  - alert: GWorkspace_ExtShare_Unrestricted
+    expr: gworkspace_extshare_unrestricted_users > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $value }} active users NOT in DEFAULT-BLOCKED OU — can still share externally"
+
+  - alert: GWorkspace_ExtShare_ExceptionOU_Unauthorized
+    expr: gworkspace_extshare_exception_unauthorized > 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{ $value }} UNAUTHORIZED user(s) in SHARED-DRIVES-EXTERNAL OU — delegate allowlist violation"
+
+  - alert: GWorkspace_ExtShare_ExceptionOU_Authorized
+    expr: gworkspace_extshare_exception_authorized > 0
+    for: 4h
+    labels:
+      severity: info
+    annotations:
+      summary: "{{ $value }} authorized delegate(s) in SHARED-DRIVES-EXTERNAL OU for over 4h — should be temporary"
+
+  - alert: GWorkspace_CollectorDown
+    expr: gworkspace_collector_up == 0
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Google Workspace collector is failing"
+
+  - alert: GWorkspace_OverQuota
+    expr: gworkspace_drive_users_over_quota > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $value }} non-exempt users over 50GB storage quota"

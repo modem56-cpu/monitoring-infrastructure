@@ -59,6 +59,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 ## Layers
 
 ### Collection Layer
+- **udm-arp-collector.py** -- SNMP ARP table from UDM Pro → OUI vendor + rDNS hostname → dual output: `network_devices.prom` (Prometheus) + `network_devices.json` (Akvorado enrichment). 90–94 devices across 4 VLANs. Runs every 5min via systemd timer.
 - **node_exporter** (Docker on 10.20, native on other Linux hosts) -- standard OS metrics
 - **windows_exporter** on win11-vm (port 9182) -- WMI-based metrics
 - **sys-sample-prom.sh** -- custom textfile collector: CPU/mem/net/disk summary as `sys_sample_*` metrics
@@ -155,10 +156,37 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | Service Account | gam-project@gam-project-gf5mq.iam.gserviceaccount.com |
 | Admin | brian.monte@yokly.gives |
 | Collection interval | 5min (gworkspace-collector timer) |
-| Data collected | Login events, admin actions, drive events, external sharing, 50GB storage enforcement, security alerts |
-| Org storage | ~2.84 TB of 3.67 TB (77%), includes 1.47 TB shared drives |
+| Collector version | v2 (group-based extshare enforcement, deployed April 15, 2026) |
+| APIs used | Admin Reports v1, Admin Directory v1, Alert Center v1beta1, Drive v3 |
+| Scopes | admin.reports.audit.readonly, admin.reports.usage.readonly, admin.directory.user.readonly, admin.directory.group.member.readonly, apps.alerts, drive.readonly |
+| Data collected | Login/admin/drive events, external sharing audit, 50GB storage enforcement, per-user Drive/Gmail/Photos split, org-level storage totals, shared drive size + file count, security alerts |
+| Org storage | ~1.16 TB used (total across 95 users via `accounts:used_quota_in_mb`) |
+| Shared drives | 29 drives, ~110 GB sampled binary storage (native Workspace files sized via `quotaBytesUsed`) |
 | 50GB exempt users | dan@agapay, calvin@yokly, it_dept@yokly, dm@yokly, tim@agapay, eddie@agapay |
-| Shared drives scanned | 28 |
+| ExtShare enforcement | Group-based: hrou, itdevou, marketingou, trainingou groups = BLOCKED; /Yokly/SHARED-DRIVES-EXTERNAL OU = exception |
+| ExtShare delegates | brian.monte, tim@yokly, tim@agapay, csednie.regasa (authorized in exception OU) |
+| ExtShare state (Apr 15) | 58 unrestricted, 22 blocked (group), 3 exception OU |
+
+### Google Workspace Metrics Reference
+
+| Metric | Source API parameter | Description |
+|--------|---------------------|-------------|
+| `gworkspace_drive_usage_bytes` | `accounts:used_quota_in_mb` | Per-user total storage |
+| `gworkspace_drive_only_bytes` | `accounts:drive_used_quota_in_mb` | Per-user Drive storage only |
+| `gworkspace_gmail_usage_bytes` | `accounts:gmail_used_quota_in_mb` | Per-user Gmail storage |
+| `gworkspace_photos_usage_bytes` | `accounts:gplus_photos_used_quota_in_mb` | Per-user Photos storage |
+| `gworkspace_org_storage_total_bytes` | Sum of `accounts:total_quota_in_mb` | Org total pooled quota |
+| `gworkspace_org_storage_used_bytes` | Sum of `accounts:used_quota_in_mb` | Org total used |
+| `gworkspace_org_storage_used_percent` | Computed | % of pool used |
+| `gworkspace_org_{drive,gmail,photos,shared_drive,personal}_bytes` | Aggregated | Org-level breakdowns |
+| `gworkspace_shared_drives_total` | Drive API `drives.list` | Count of shared drives |
+| `gworkspace_shared_drive_size_bytes` | Drive API `files.list(quotaBytesUsed)` | Per-drive storage (incl. native files) |
+| `gworkspace_shared_drive_files` | Drive API `files.list` | Per-drive file count |
+| `gworkspace_extshare_blocked_users` | Directory + Groups API | Users in restrictive groups |
+| `gworkspace_extshare_exception_users` | Directory API (OU) | Users in SHARED-DRIVES-EXTERNAL OU |
+| `gworkspace_extshare_unrestricted_users` | Directory API | Users with external sharing open |
+
+> **Note:** `quotaBytesUsed` is the correct field for shared drive storage — `size` returns 0 for Google-native files (Docs, Sheets, Slides). The Admin Console uses `quotaBytesUsed` internally. Large drives (e.g. Yokly USA at 1.35 TB) may still show lower values if they exceed the 50k-file page cap.
 
 ## WireGuard VPN
 
@@ -173,7 +201,47 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | Alert rules | 6 in akvorado.rules.yml |
 | Recording rules | 4 in recording.rules.yml |
 | Wazuh bridge | akvorado-mesh-to-wazuh (AkvoradoDown, AkvoradoNoFlows) |
-| Grafana dashboard | /d/akvorado (12 panels) |
+| Grafana dashboard | /d/akvorado (12 panels, pipeline health only) |
+| Console | http://192.168.10.20:8082 — flow analysis with device enrichment |
+| Flow sources | UDM Pro IPFIX/NetFlow/sFlow (ports 4739, 2055, 6343 UDP) |
+
+### Akvorado Device Enrichment Pipeline (live as of April 15, 2026)
+
+```
+UDM Pro ARP (SNMP)
+  │  OID: 1.3.6.1.2.1.4.22.1.2  (ARP table)
+  │  Enriched with: OUI vendor lookup + rDNS hostname
+  ▼
+udm-arp-collector.py  (systemd timer, every 5 min)
+  ├── /opt/monitoring/textfile_collector/network_devices.prom
+  │     network_device_info{ip, mac, vlan, vendor, hostname} 1
+  │     network_device_count{vlan} N
+  └── /opt/monitoring/data/network_devices.json
+        [{ip, hostname, vendor, vlan, vlan_id, mac}, ...]
+
+device-json-server.service  (HTTP/1.0, port 9117)
+  └── serves network_devices.json to Akvorado orchestrator
+        UFW rule: allow 247.16.14.0/24 (akvorado bridge) → :9117
+
+Akvorado Orchestrator  (polls http://247.16.14.1:9117 every 5 min)
+  └── jq transform: each device → /32 prefix entry
+        {prefix: "<ip>/32", name: <hostname>, tenant: <vlan>, role: <vendor>}
+  └── merged with static subnet config (192.168.1.0/24 → LAN, etc.)
+  └── serves /api/v0/orchestrator/clickhouse/networks.csv (205 MB)
+
+ClickHouse  (dictionary: default.networks, 5.4M entries, 1.21 GiB)
+  └── loaded at flow INSERT time via akvorado-clickhouse component
+  └── Enriched columns on flows_5m0s / flows_1h0m0s:
+        SrcNetName   → device hostname (e.g., Calvin-s-S23)
+        SrcNetTenant → VLAN name (e.g., LAN, SecurityApps)
+        SrcNetRole   → vendor (e.g., ASUSTek COMPUTER INC.)
+        DstNetName / DstNetTenant / DstNetRole (for internal dsts)
+```
+
+### ClickHouse Stability Notes
+- `server.xml` sets `max_bytes_to_merge_at_max_space_in_pool = 1 GiB` — prevents OOM crash loop from oversized system log TTL merges
+- `max_server_memory_usage_to_ram_ratio = 0.9` — uses 90% of host RAM vs 80% default
+- System log tables (`metric_log`, `trace_log`, `text_log`, `query_log`, `asynchronous_metric_log`) truncated April 15, 2026 to resolve existing poisoned merge task
 
 ## HTML File Types
 
