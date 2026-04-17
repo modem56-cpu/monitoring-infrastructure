@@ -17,11 +17,11 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 | Host | IP | Role | Exporter | Wazuh Agent | Status |
 |------|----|------|----------|-------------|--------|
 | wazuh-server | 192.168.10.20 | SIEM / Monitoring Hub | node_exporter :9100 (Docker) + sys_sample | 000 (manager) | UP |
-| unraid-tower | 192.168.10.10 | NAS / Hypervisor | node_exporter :9100 (native) | 005 | UP |
-| vm-devops | 192.168.5.131 | Ubuntu DevOps VM | node_exporter :9100 (native) | 004 | UP |
-| win11-vm | 192.168.1.253 | Windows Endpoint | windows_exporter :9182 | 003 | UP |
-| movement-strategy | 31.170.165.94 / VPN 10.253.2.22 | Hostinger VPS | SSH collector (vps_* metrics) | 006 | UP |
-| fathom-vault | 192.168.10.24 | Ubuntu VM | node_exporter + sys_sample + sys_topproc | 007 | UP |
+| vm-devops | 192.168.5.131 | Ubuntu DevOps VM | node_exporter :9100 (native) | 001 | UP |
+| unraid-tower | 192.168.10.10 | NAS / Hypervisor | node_exporter :9100 (native) | 002 | UP |
+| movement-strategy | 31.170.165.94 / VPN 10.253.2.22 | Hostinger VPS | SSH collector (vps_* metrics) | 003 | UP |
+| win11-vm | 192.168.1.253 | Windows Endpoint | windows_exporter :9182 | 004 | UP |
+| fathom-vault | 192.168.10.24 | Ubuntu VM | node_exporter + sys_sample + sys_topproc | 005 | UP |
 | UDM Pro | 192.168.10.1 | Gateway / Firewall | SNMP (if_mib) + blackbox + syslog→Wazuh + ARP→Akvorado | syslog only | UP |
 | Google Workspace | cloud | SaaS (Yokly/Agapay) | gworkspace-collector v2 (API) | — | UP |
 
@@ -33,11 +33,11 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 
 ### Prometheus Monitoring
 - **23 scrape targets** — 7 hosts + SNMP + blackbox + cAdvisor + Akvorado + self
-- **30 alerting rules** across `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`
+- **36 alerting rules** across `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`, `vmbackup.rules.yml`
 - **19 recording rules** in `recording.rules.yml`
 - **90-day retention**, admin API enabled
 
-### Grafana Dashboards (10)
+### Grafana Dashboards (11)
 
 | Dashboard | URL | Description |
 |-----------|-----|-------------|
@@ -49,6 +49,7 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 | Docker Containers & APIs | `/d/docker-containers` | cAdvisor + API health probes |
 | Akvorado Flow Pipeline | `/d/akvorado` | Inlet/outlet/orchestrator, flow rates, Kafka, ClickHouse (12 panels) |
 | Google Workspace | `/d/google-workspace` | Users, storage, shared drives, events, 50GB enforcement |
+| VM Backups | `/d/vm-backups` | Unraid VM backup age, size, health, definition status |
 | HTML Reports Hub | `/d/html-reports` | Embedded HTML dashboards |
 | Export Reports | `/d/export-reports` | JSON download for AI analysis |
 
@@ -68,7 +69,7 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 
 | Component | Details |
 |-----------|---------|
-| Active agents | 6 (000 manager, 003–007) |
+| Active agents | 6 (000 manager, 001–005; re-assigned April 13 after manager recovery) |
 | Custom rules | 100300–100307 (Prometheus), 100400–100407 (UDM), 100500–100508 (Google Workspace) |
 | auditd | 20+ rules: identity, SSH keys, priv-esc, root, cron, systemd, Docker, WireGuard, kernel |
 | FIM | /root/.ssh, crontabs, /etc/wireguard, docker-compose.yml, prometheus.yml |

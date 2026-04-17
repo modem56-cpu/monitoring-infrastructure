@@ -10,7 +10,7 @@
   wazuh-server (192.168.10.20) — Docker stack:
   ┌─────────────────────────────────────────────────┐
   │  prometheus (:9090)  — 23 scrape targets        │
-  │  grafana (:3000)     — 10 dashboards            │
+  │  grafana (:3000)     — 11 dashboards            │
   │  alertmanager (:9093) — webhook receiver         │
   │  node-exporter (:9100, internal)                │
   │  blackbox-exporter   — ICMP/TCP/HTTP probes     │
@@ -137,18 +137,19 @@
 ║              ALERTING & SIEM                                     ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-  Prometheus (30 alerting rules, 19 recording rules):
+  Prometheus (36 alerting rules, 19 recording rules):
   ┌───────────────────────────────────────────────────────────────┐
   │  blackbox.rules.yml      — UDM/endpoint reachability          │
   │  infrastructure.rules.yml — node down, disk, memory, CPU      │
   │  containers.rules.yml    — Docker container health             │
   │  akvorado.rules.yml      — flow pipeline health                │
+  │  vmbackup.rules.yml      — VM backup age, size, health        │
   │                                                               │
   │  → Alertmanager (:9093)  — webhook receiver                    │
   │  → prom-to-wazuh.sh (60s) — 7 alert types to Wazuh SIEM      │
   └───────────────────────────────────────────────────────────────┘
 
-  Wazuh SIEM (6 agents: 000, 003, 004, 005, 006, 007):
+  Wazuh SIEM (6 agents: 000–005, re-registered April 13 after manager recovery):
   ┌───────────────────────────────────────────────────────────────┐
   │  Custom rules:                                                │
   │    prometheus_monitoring.xml  (100300-100307)                  │

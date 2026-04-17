@@ -80,14 +80,14 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 - **Textfile directory** -- `/opt/monitoring/textfile_collector/*.prom` (mounted read-only into node-exporter container at `/textfile_collector`)
 
 ### Alerting Layer
-- **30 alerting rules** across: `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`
+- **36 alerting rules** across: `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml` (incl. 6 vmbackup rules)
 - **19 recording rules** in `recording.rules.yml`
 - **Alertmanager** -- webhook receiver for alert routing
 - **prom-to-wazuh.sh** -- bridges Prometheus alerts to Wazuh SIEM (7 alert types, every 60s)
 - **akvorado-mesh-to-wazuh** -- bridges Akvorado alerts to Wazuh (every 5min)
 
 ### SIEM Layer (Wazuh)
-- **6 active agents** (000 manager, 003 win11-vm, 004 vm-devops, 005 unraid-tower, 006 movement-strategy, 007 fathom-vault)
+- **6 active agents** (000 manager, 001 vm-devops/5.131, 002 unraid-tower/10.10, 003 movement-strategy, 004 win11-vm/1.253, 005 fathom-server/10.24) — IDs re-assigned April 13 after manager recovery
 - **Custom decoders**: udm_firewall.xml (UDM Pro iptables logs)
 - **Custom rules**: prometheus_monitoring.xml (100300-100307), udm_firewall.xml (100400-100407), google_workspace.xml (100500-100508)
 - **auditd**: 20+ rules (identity, SSH keys, priv-esc, root commands, cron, systemd, Docker, WireGuard, kernel modules)
@@ -98,7 +98,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 - **UDM Pro syslog**: UDP 514 from 192.168.10.1
 
 ### Visualization Layer
-- **Grafana** -- 10 dashboards covering fleet overview, per-node deep-dive, Windows, VPS, UDM Pro, Docker/APIs, Akvorado, Google Workspace, HTML reports hub, export reports
+- **Grafana** -- 11 dashboards covering fleet overview, per-node deep-dive, Windows, VPS, UDM Pro, Docker/APIs, Akvorado, Google Workspace, VM Backups, HTML reports hub, export reports
 - **HTML dashboards** -- auto-generated every 3 minutes, served on :8088
 - **JSON report** -- `/opt/monitoring/generate-report.py`, auto-refreshed every 5min at :8088/monitoring_report.json
 
@@ -134,7 +134,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | akvorado-orchestrator | akvorado | akvorado | Orchestrator |
 | (+ additional blackbox/API health probe targets) | | | |
 
-## Grafana Dashboards (10)
+## Grafana Dashboards (11)
 
 | # | Dashboard | Path | Description |
 |---|-----------|------|-------------|
@@ -146,8 +146,9 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | 6 | Docker Containers & APIs | /d/docker-containers | cAdvisor + API health probes |
 | 7 | Akvorado Flow Pipeline | /d/akvorado | Inlet/outlet/orchestrator, flow rates, Kafka, ClickHouse (12 panels) |
 | 8 | Google Workspace | /d/google-workspace | Users, storage breakdown, shared drives, events, 50GB enforcement |
-| 9 | HTML Reports Hub | /d/html-reports | Embedded HTML dashboards with collapsible rows |
-| 10 | Export Reports | /d/export-reports | JSON download for AI analysis |
+| 9 | VM Backups | /d/vm-backups | Unraid VM backup age, size, health, definition status (4 VMs) |
+| 10 | HTML Reports Hub | /d/html-reports | Embedded HTML dashboards with collapsible rows |
+| 11 | Export Reports | /d/export-reports | JSON download for AI analysis |
 
 ## Google Workspace Integration
 
@@ -237,6 +238,15 @@ ClickHouse  (dictionary: default.networks, 5.4M entries, 1.21 GiB)
         SrcNetRole   → vendor (e.g., ASUSTek COMPUTER INC.)
         DstNetName / DstNetTenant / DstNetRole (for internal dsts)
 ```
+
+### Wazuh Indexer (OpenSearch) Notes
+
+- **JVM heap:** `-Xms1g -Xmx1g` (explicitly set April 16, 2026 after OOM crash at auto-sized ~2 GB)
+- **Heap dump on OOM:** Disabled (`-XX:-HeapDumpOnOutOfMemoryError`) — was filling disk with 847 MB dumps
+- **Circuit breaker:** Fires at 95% of heap (~972 MB); protects against runaway queries at cost of 429 errors
+- **RAM budget context:** Host has 7.8 GB; Kafka holds 1 GB; swap is near-full (3.9/4 GB) — indexer capped at 1 GB to leave headroom
+- **Config file:** `/etc/wazuh-indexer/jvm.options`
+- **If indexer OOMs again:** Run `sudo bash /opt/monitoring/fix-indexer-heap-1g.sh`; consider swap expansion or RAM upgrade
 
 ### ClickHouse Stability Notes
 - `server.xml` sets `max_bytes_to_merge_at_max_space_in_pool = 1 GiB` — prevents OOM crash loop from oversized system log TTL merges

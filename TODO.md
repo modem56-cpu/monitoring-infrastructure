@@ -33,11 +33,18 @@
 
 - [ ] **Git commit all changes** ← *overdue*
   - Stage and commit all configuration, scripts, rules, and documentation
-  - Includes: ARP collector, json-server, deploy scripts, akvorado config, ClickHouse server.xml, all doc updates
+  - Includes: ARP collector, json-server, deploy scripts, akvorado config, ClickHouse server.xml, all doc updates, indexer fix scripts
 
 - [ ] **Prevent accidental wazuh-agent install on manager**
   - `sudo apt-mark hold wazuh-agent` on wazuh-server (192.168.10.20)
   - One line; prevents recurrence of April 13 incident
+
+- [ ] **Verify wazuh-indexer is stable at 1 GB heap** ← *new — April 16*
+  - Indexer OOM'd today (auto-heap → 1.5 GB, then 512m → circuit breaker trip)
+  - Fixed at `-Xms1g -Xmx1g` in `/etc/wazuh-indexer/jvm.options`
+  - Monitor: `journalctl -u wazuh-indexer -f` and `curl -sk -u admin:'...' https://localhost:9200/_cluster/health`
+  - If circuit breaker fires again → consider swap expansion or RAM upgrade
+  - Heap dump on OOM disabled (`-XX:-HeapDumpOnOutOfMemoryError`)
 
 - [ ] **Verify fathom-vaultserver backup is healthy (Saturday April 19, 2:05 AM)**
   - Expect backup size > 5 GB (was 6.4 MB = empty disk)
@@ -75,10 +82,13 @@
   - `docker exec akvorado-clickhouse-1 clickhouse-client --query "SELECT table, formatReadableSize(sum(bytes_on_disk)) FROM system.parts WHERE database='system' GROUP BY table ORDER BY sum(bytes_on_disk) DESC"`
   - Long-term: reduce system log TTL in server.xml from 30 to 7 days for metric_log and trace_log
 
-- [ ] **Memory pressure on wazuh-server (at ~87% RAM)**
-  - Running 20+ containers + Wazuh manager on 8 GB
-  - Consider: move Grafana/Prometheus to fathom-vault, or add RAM
+- [ ] **Memory pressure on wazuh-server** ← *elevated after April 16 OOM*
+  - 7.8 GB total; 5.7 GB used; swap 3.9/4 GB (nearly full)
+  - wazuh-indexer: 1 GB heap (fixed), ~1.3 GB RSS in practice
+  - Kafka: 1 GB heap fixed; ZAP: configured 2 GB but only ~12 MB RSS actual
+  - Options (in order of preference): (1) expand swap to 8 GB, (2) add 8 GB RAM, (3) migrate Grafana+Prometheus to fathom-vault
   - ClickHouse configured at 90% RAM ratio; monitor for OOM events
+  - `sudo bash /opt/monitoring/fix-indexer-heap-1g.sh` if indexer crashes again
 
 - [ ] **Timer failure alerting**
   - Add `OnFailure=` systemd unit for HTML generation and ARP collector services

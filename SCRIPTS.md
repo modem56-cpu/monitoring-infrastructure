@@ -56,6 +56,13 @@
 | `fix_top_cpu_tables.sh` | tower_10_24, tower_10_10 | Top CPU table (dedup-safe) |
 | `tower_ssh_sessions_local.sh` | tower_ssh_sessions.prom | SSH session textfile (w -h -i, full username, remote-only) |
 
+## Incident Response Scripts (`/opt/monitoring/`)
+
+| Script | Purpose |
+|--------|---------|
+| `fix-indexer-oom.sh` | Remove wazuh-indexer heap dumps, set heap to 512m, disable OOM heap dump, restart indexer. Run with sudo. Created April 16 (first attempt — 512m proved too small). |
+| `fix-indexer-heap-1g.sh` | Set wazuh-indexer heap to 1 GB (`-Xms1g -Xmx1g`), restart, and verify cluster health. **Use this one** if indexer OOMs again. Run with sudo. |
+
 ## Removed Scripts (April 2026)
 
 | Script | Reason |

@@ -4,7 +4,7 @@
 **Platform:** Prometheus + Grafana + Wazuh SIEM + Custom Collectors  
 **Hub:** 192.168.10.20 (wazuh-server)  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
-**Delivered:** February 2026 — Hardened & Stabilized April 2026  
+**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 16, 2026  
 
 ---
 
@@ -190,14 +190,14 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 
 ---
 
-## Metrics at a Glance (Current — April 15, 2026)
+## Metrics at a Glance (Current — April 16, 2026)
 
 | Stat | Value |
 |------|-------|
 | Hosts monitored | 7 active + UDM Pro gateway |
-| Wazuh agents | 6 (000-005: wazuh-server, ubuntu-5.131, unraid-10.10, movement-strategy, devops-1.253, fathom-server) |
+| Wazuh agents | 6 (000 manager, 001 vm-devops/5.131, 002 unraid/10.10, 003 movement-strategy, 004 win11-vm/1.253, 005 fathom-server/10.24) |
 | Prometheus scrape targets | 23 (all UP) |
-| Prometheus alerting rules | 36 (incl. 6 vmbackup rules) |
+| Prometheus alerting rules | 36 (incl. 6 vmbackup rules) — 36 active, 0 firing |
 | Prometheus recording rules | 19 |
 | Grafana dashboards | 11 (incl. VM Backups, redesigned Google Workspace) |
 | Systemd timers | 10 |
@@ -217,6 +217,23 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | Git repository | github.com/modem56-cpu/monitoring-infrastructure |
 | Automated since | February 2026 (hardened & expanded April 2026) |
 
+### 20. Wazuh Indexer OOM Resolution — April 16, 2026
+
+Diagnosed and resolved a `java.lang.OutOfMemoryError: Java heap space` crash on the wazuh-indexer (OpenSearch) service that took down the Wazuh dashboard and all SIEM visibility.
+
+| Stage | What Happened |
+|-------|--------------|
+| Crash | wazuh-indexer OOM at 1.2–1.5 GB peak; auto-heap sizing exceeded available RAM; 847 MB heap dump written to `/var/lib/wazuh-indexer/` |
+| First fix attempt | Heap capped at 512m — too small; circuit breaker immediately tripped at 486 MB with 275 active shards |
+| Final fix | Heap set to `-Xms1g -Xmx1g`; heap dump on OOM disabled; indexer restarted stable |
+| Root cause | Memory over-commitment: Kafka (1 GB) + ZAP proxy (configured 2 GB, actual ~12 MB RSS) + indexer (auto-sized ~2 GB) on 7.8 GB host with swap nearly full (3.9/4 GB used) |
+| Scripts created | `fix-indexer-oom.sh`, `fix-indexer-heap-1g.sh` in `/opt/monitoring/` |
+| Dashboard impact | "Error Pattern Handler (getPatternList)" error; cleared once indexer stabilized |
+
+**Prevention added to TODO:** Monitor indexer heap usage; consider swap expansion or RAM upgrade if memory pressure continues.
+
+---
+
 ### 6. UDM ARP Collector + Akvorado Device Enrichment — April 15, 2026
 
 1. **Built UDM Pro ARP collector (SNMP + OUI + rDNS → Prometheus textfile)** — `udm-arp-collector.py` polls SNMP ARP table (OID 1.3.6.1.2.1.4.22.1.2) every 5 minutes via systemd timer. Enriches MAC with IEEE OUI vendor lookup (/usr/share/ieee-data/oui.txt, 194K entries) and reverse DNS hostname. Writes `network_device_info` and `network_device_count` metrics for 90–94 devices across 4 VLANs (LAN/SecurityApps/Dev/VLAN4). Output: `/opt/monitoring/textfile_collector/network_devices.prom`
@@ -233,6 +250,13 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 5. **Result: per-device flow enrichment live in Akvorado console** — `Src Net Name` shows hostnames (Calvin-s-S23, ServerPC, wazuh-server, Tower), `Src Net Tenant` shows VLAN, `Src Net Role` shows vendor. Verified via `dictGet` and `flows_5m0s` ClickHouse queries. Dictionary loaded with 5.4M elements (1.21 GiB).
 
 ## Incident Log
+
+### Wazuh Indexer OOM — April 16, 2026
+- **Impact:** Wazuh dashboard offline; "Error Pattern Handler (getPatternList)" shown to all users; SIEM visibility lost until resolved
+- **Root cause:** OpenSearch (wazuh-indexer) JVM heap auto-sized above available RAM. Host has 7.8 GB RAM; Kafka (1 GB heap) + indexer (~2 GB auto-heap) + swap nearly full (3.9/4 GB) = OOM. 847 MB heap dump written to `/var/lib/wazuh-indexer/`
+- **Resolution:** JVM heap explicitly set to `-Xms1g -Xmx1g` in `/etc/wazuh-indexer/jvm.options`. Heap dump on OOM disabled. Service restarted; cluster recovered to yellow/green with all shards assigned.
+- **Time to resolve:** ~45 minutes (diagnosis + two fix iterations)
+- **Prevention:** Explicit heap cap ensures no auto-sizing above RAM budget. TODO: swap expansion or RAM upgrade recommended; monthly check on indexer RSS.
 
 ### Fathom-vaultserver Data Loss — March–April 2026
 - **Impact:** Complete loss of fathom-vaultserver OS and application data
