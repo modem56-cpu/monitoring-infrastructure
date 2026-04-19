@@ -34,6 +34,13 @@
    │Login/Admin/Drive     │    │Flow rates, Kafka, ClickHouse │         │
    │Storage enforcement   │    │                              │         │
    └──────────────────────┘    └──────────────────────────────┘         │
+                                                                        │
+   ┌──────────────────────────────────────────────────┐                 │
+   │Network Device Inventory (UDM ARP Collector v2)   │                 │
+   │90 devices, 4 VLANs, MAC-centric baseline         │                 │
+   │Wazuh JSON export + Prometheus metrics             │                 │
+   │Baseline: 80 MACs (sealed April 18, 2026)         │                 │
+   └──────────────────────────────────────────────────┘                 │
 ```
 
 ## Docker Stack (docker-compose.yml)
@@ -47,6 +54,7 @@
 | blackbox-exporter | 9115 | monitoring | ICMP, TCP, HTTP (incl. http_2xx_selfsigned) |
 | snmp-exporter | 9116 | monitoring | UDM Pro SNMP (if_mib) |
 | cadvisor | 8080 | monitoring | Per-container Docker metrics |
+| owasp-zap | 8080, 8090 | host | OWASP ZAP proxy; mem_limit: 700m; JVM: -Xmx384m (capped April 18, was -Xmx1985m auto) |
 
 ## Docker Networking
 
@@ -80,16 +88,17 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 - **Textfile directory** -- `/opt/monitoring/textfile_collector/*.prom` (mounted read-only into node-exporter container at `/textfile_collector`)
 
 ### Alerting Layer
-- **36 alerting rules** across: `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml` (incl. 6 vmbackup rules)
+- **39 alerting rules** across: `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml` (incl. 6 vmbackup rules), `network_inventory.rules.yml`
 - **19 recording rules** in `recording.rules.yml`
 - **Alertmanager** -- webhook receiver for alert routing
 - **prom-to-wazuh.sh** -- bridges Prometheus alerts to Wazuh SIEM (7 alert types, every 60s)
 - **akvorado-mesh-to-wazuh** -- bridges Akvorado alerts to Wazuh (every 5min)
+- **network_inventory.rules.yml**: 3 rules (NetworkNewDeviceDetected/warning, NetworkARPConflict/critical, NetworkARPCollectorStale/warning)
 
 ### SIEM Layer (Wazuh)
 - **6 active agents** (000 manager, 001 vm-devops/5.131, 002 unraid-tower/10.10, 003 movement-strategy, 004 win11-vm/1.253, 005 fathom-server/10.24) — IDs re-assigned April 13 after manager recovery
 - **Custom decoders**: udm_firewall.xml (UDM Pro iptables logs)
-- **Custom rules**: prometheus_monitoring.xml (100300-100307), udm_firewall.xml (100400-100407), google_workspace.xml (100500-100508)
+- **Custom rules**: prometheus_monitoring.xml (100300-100307), udm_firewall.xml (100400-100407), google_workspace.xml (100500-100508), network_inventory.xml (100700-100707): Network Device Inventory events
 - **auditd**: 20+ rules (identity, SSH keys, priv-esc, root commands, cron, systemd, Docker, WireGuard, kernel modules)
 - **FIM**: /root/.ssh, crontabs, /etc/wireguard, docker-compose.yml, prometheus.yml
 - **Active Response**: firewall-drop on SSH brute force (rule 5763, 1hr block)
@@ -98,7 +107,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 - **UDM Pro syslog**: UDP 514 from 192.168.10.1
 
 ### Visualization Layer
-- **Grafana** -- 11 dashboards covering fleet overview, per-node deep-dive, Windows, VPS, UDM Pro, Docker/APIs, Akvorado, Google Workspace, VM Backups, HTML reports hub, export reports
+- **Grafana** -- 12 dashboards covering fleet overview, per-node deep-dive, Windows, VPS, UDM Pro, Docker/APIs, Akvorado, Google Workspace, VM Backups, HTML reports hub, export reports, Network Inventory & Audit
 - **HTML dashboards** -- auto-generated every 3 minutes, served on :8088
 - **JSON report** -- `/opt/monitoring/generate-report.py`, auto-refreshed every 5min at :8088/monitoring_report.json
 
@@ -134,7 +143,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | akvorado-orchestrator | akvorado | akvorado | Orchestrator |
 | (+ additional blackbox/API health probe targets) | | | |
 
-## Grafana Dashboards (11)
+## Grafana Dashboards (12)
 
 | # | Dashboard | Path | Description |
 |---|-----------|------|-------------|
@@ -149,6 +158,7 @@ are scraped via their LAN IPs through the Docker bridge gateway.
 | 9 | VM Backups | /d/vm-backups | Unraid VM backup age, size, health, definition status (4 VMs) |
 | 10 | HTML Reports Hub | /d/html-reports | Embedded HTML dashboards with collapsible rows |
 | 11 | Export Reports | /d/export-reports | JSON download for AI analysis |
+| 12 | Network Inventory & Audit | /d/network-inventory | Device baseline, new MAC alerts, ARP conflicts, per-VLAN counts |
 
 ## Google Workspace Integration
 
@@ -252,6 +262,82 @@ ClickHouse  (dictionary: default.networks, 5.4M entries, 1.21 GiB)
 - `server.xml` sets `max_bytes_to_merge_at_max_space_in_pool = 1 GiB` — prevents OOM crash loop from oversized system log TTL merges
 - `max_server_memory_usage_to_ram_ratio = 0.9` — uses 90% of host RAM vs 80% default
 - System log tables (`metric_log`, `trace_log`, `text_log`, `query_log`, `asynchronous_metric_log`) truncated April 15, 2026 to resolve existing poisoned merge task
+
+## Network Inventory System (Deployed April 18, 2026)
+
+### Architecture
+UDM Pro ARP (SNMP) → udm-arp-collector v2 → dual output:
+  1. Prometheus textfile: network_device_info{}, network_device_count{}
+  2. /var/log/network-inventory-wazuh.log (JSON events → Wazuh)
+  3. /opt/monitoring/data/network_devices.json (Akvorado enrichment)
+  4. /opt/monitoring/data/network_inventory_state.json (MAC-keyed state)
+
+### State File Structure
+{
+  "by_mac": {
+    "<mac>": {ip, hostname, vendor, vlan, source, baseline_set, first_seen, last_seen}
+  },
+  "by_ip": {"<ip>": "<mac>"}    ← secondary index for ARP conflict detection
+}
+
+Source field values:
+- "baseline" — device was present when baseline-network-inventory.py ran
+- "discovered" — new MAC appeared after baseline; triggers level 6+ alert
+
+### Baseline Logic
+- baseline-network-inventory.py seals current ARP as known-good
+- Re-runnable: merges new authorized devices into baseline
+- 80 unique MACs from 90 ARP entries (APs share MAC across VLANs)
+- After baseline: only new MACs trigger alerts; DHCP IP changes are level 3 (silent)
+
+### Event Types (Wazuh rules 100700-100707)
+| Rule | Level | Event | Condition |
+|------|-------|-------|-----------|
+| 100700 | 3 | base | Any network_inventory JSON |
+| 100701 | 2 | inventory_summary | Periodic summary (every 5 min) |
+| 100702 | 6 | new_device | New MAC not in baseline |
+| 100703 | 10 | new_device | New MAC on SecurityApps VLAN |
+| 100704 | 10 | unknown_vendor_sensitive | Unknown vendor on SecurityApps VLAN |
+| 100705 | 3 | dhcp_ip_changed | Known MAC got new IP (DHCP, silent) |
+| 100706 | 12 | arp_conflict | Same IP → different MAC (spoofing indicator) |
+| 100707 | 14 | arp_conflict | ARP conflict on SecurityApps VLAN |
+
+### Prometheus Metrics
+| Metric | Description |
+|--------|-------------|
+| network_device_info{ip, mac, hostname, vendor, vlan, vlan_id} | Device presence (value=1) |
+| network_device_count{vlan} | Device count per VLAN |
+| network_inventory_baseline_total | Total baselined MACs |
+| network_inventory_discovered_total | New MACs since baseline |
+| network_inventory_arp_conflicts_total | ARP conflicts detected |
+| network_inventory_discovered_device{mac, ip, hostname, vendor, vlan} | New device audit metric (unix timestamp as value) |
+| network_inventory_arp_conflict_event{ip, old_mac, new_mac, vendor, vlan} | ARP conflict audit metric |
+| network_arp_collector_last_run | Unix timestamp of last collection |
+
+### Known Anomalies (April 18, 2026)
+- 192.168.10.24 and 192.168.10.25 share MAC 52:54:00:ad:42:13 — likely VM cloned without MAC regeneration; investigation pending
+- 192.168.10.181 shares MAC with wazuh-server (52:54:00:a0:4c:be) — likely container bridge/VPN interface, expected
+- APs share MAC across VLANs (94:2a:6f:1c:63:ef on 5.121, 1.171, 10.121, 10.122, 4.121) — normal Ubiquiti behavior
+
+## Memory Budget — wazuh-server (192.168.10.20)
+
+Total RAM: 7.8 GB | Total Swap: 8.0 GB (expanded April 18, /swap.img + /swap2.img)
+
+| Process | JVM Heap Cap | ~RSS | Config Location |
+|---------|-------------|------|-----------------|
+| Wazuh Indexer (OpenSearch) | -Xmx1g | ~1.3 GB | /etc/wazuh-indexer/jvm.options |
+| Kafka broker | -Xmx1g | ~1.4 GB | akvorado docker-compose (built-in) |
+| OWASP ZAP | -Xmx384m | ~477 MB | /home/zap/.ZAP/.ZAP_JVM.properties |
+| Kafka UI | -Xmx256m | ~282 MB | docker-compose.override.yml JAVA_OPTS |
+| ClickHouse | 90% RAM ratio | ~1.85 GB | server.xml max_server_memory_usage_to_ram_ratio |
+| Suricata | N/A | ~450 MB | N/A |
+| Prometheus | N/A | ~500 MB | N/A |
+| Node/Grafana | N/A | ~350 MB | N/A |
+
+All JVM processes have EXPLICIT heap caps — no auto-sizing. Auto-sizing caused April 16 OOM.
+Swap usage: ~4.4 GB / 8.0 GB (55%). Target: keep below 75%.
+
+If swap exceeds 80%: RAM upgrade (+8 GB) or migrate Prometheus/Grafana to fathom-vault (10.24).
 
 ## HTML File Types
 

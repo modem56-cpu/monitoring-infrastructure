@@ -3,7 +3,7 @@ groups:
   rules:
 
   - alert: ContainerDown
-    expr: absent(container_last_seen{name!=""}) or (time() - container_last_seen{name!=""}) > 120
+    expr: absent(container_last_seen{name!=""}) or (time() - max by (name, instance, job, alias) (container_last_seen{name!=""})) > 120
     for: 2m
     labels:
       severity: warning

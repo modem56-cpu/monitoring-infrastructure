@@ -1,0 +1,4 @@
+<decoder name="network_inventory">
+  <prematch>{"source":"network_inventory"</prematch>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>

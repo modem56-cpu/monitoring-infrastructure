@@ -219,17 +219,25 @@ report["akvorado"] = {
 }
 
 # === Google Workspace ===
+_gw_personal_bytes = scalar("gworkspace_org_storage_used_bytes") or 0
+_gw_shared_bytes   = scalar("gworkspace_org_shared_drive_bytes") or 0
+_gw_pool_bytes     = scalar("gworkspace_org_storage_total_bytes") or 0
+_gw_used_bytes     = _gw_personal_bytes + _gw_shared_bytes  # shared drives count against org pool
+_gw_avail_bytes    = max(0.0, _gw_pool_bytes - _gw_used_bytes)
+_gw_used_pct       = round(_gw_used_bytes / _gw_pool_bytes * 100, 2) if _gw_pool_bytes else 0.0
+
 gw = {
     "users_total": int(scalar("gworkspace_users_total") or 0),
     "users_active": int(scalar("gworkspace_users_active") or 0),
     "users_admin": int(scalar("gworkspace_users_admin") or 0),
     "storage": {
-        "pool_tb": round((scalar("gworkspace_org_storage_total_bytes") or 0) / 1024**4, 2),
-        "used_tb": round((scalar("gworkspace_org_storage_used_bytes") or 0) / 1024**4, 2),
-        "used_pct": scalar("gworkspace_org_storage_used_percent"),
-        "available_tb": round((scalar("gworkspace_org_storage_available_bytes") or 0) / 1024**4, 2),
+        "pool_tb": round(_gw_pool_bytes / 1024**4, 2),
+        "used_tb": round(_gw_used_bytes / 1024**4, 2),
+        "used_pct": _gw_used_pct,
+        "available_tb": round(_gw_avail_bytes / 1024**4, 2),
+        "personal_tb": round(_gw_personal_bytes / 1024**4, 2),
         "drive_tb": round((scalar("gworkspace_org_drive_bytes") or 0) / 1024**4, 2),
-        "shared_drives_tb": round((scalar("gworkspace_org_shared_drive_bytes") or 0) / 1024**4, 2),
+        "shared_drives_tb": round(_gw_shared_bytes / 1024**4, 2),
         "gmail_gb": round((scalar("gworkspace_org_gmail_bytes") or 0) / 1024**3, 1),
         "photos_gb": round((scalar("gworkspace_org_photos_bytes") or 0) / 1024**3, 1),
     },

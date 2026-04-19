@@ -370,8 +370,7 @@ try:
         size_bytes = 0
         file_count = 0
         pt2 = None
-        pages = 0
-        while pages < 50:  # cap at ~50k files per drive
+        while True:  # no file count cap — large drives (e.g. Yokly USA >50k files) were being truncated
             try:
                 files_resp = drive_svc.files().list(
                     driveId=drive_id,
@@ -388,7 +387,6 @@ try:
                 file_count += 1
                 size_bytes += int(f.get("quotaBytesUsed", 0) or 0)
             pt2 = files_resp.get("nextPageToken")
-            pages += 1
             if not pt2:
                 break
 

@@ -1,0 +1,42 @@
+groups:
+  - name: network_inventory
+    rules:
+
+      # ── New device detected after baseline ───────────────────────────────
+      - alert: NetworkNewDeviceDetected
+        expr: network_inventory_discovered_total > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} new device(s) detected since baseline"
+          description: >
+            One or more devices with MACs not in the approved baseline have
+            appeared on the network. Check Grafana Network Inventory dashboard
+            or Wazuh for details. Re-run baseline script once authorized.
+
+      # ── ARP conflict (possible spoofing) ─────────────────────────────────
+      - alert: NetworkARPConflict
+        expr: network_inventory_arp_conflicts_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} ARP conflict(s) detected"
+          description: >
+            An IP address is mapping to a different MAC than previously known.
+            This may indicate ARP spoofing, a device swap, or DHCP confusion.
+            Check Grafana Network Inventory dashboard ARP Conflicts panel.
+
+      # ── ARP collector not running ─────────────────────────────────────────
+      - alert: NetworkARPCollectorStale
+        expr: (time() - network_arp_collector_last_run) > 600
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Network ARP collector has not run in {{ $value | humanizeDuration }}"
+          description: >
+            The udm-arp-collector.timer has not produced fresh data.
+            Network inventory and Akvorado enrichment may be stale.
+            Check: systemctl status udm-arp-collector.timer

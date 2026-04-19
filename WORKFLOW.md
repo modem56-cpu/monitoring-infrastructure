@@ -335,3 +335,123 @@
   4. Removed obsolete tower-dashboard.service
   5. Only update_all_dashboards.sh generates tower_*.html base files
 ```
+
+## Network Device Inventory Workflow (Deployed April 18, 2026)
+
+### End-to-End Flow
+
+```
+UDM Pro ARP Table (SNMP OID 1.3.6.1.2.1.4.22.1.2)
+  │  Poll every 5 minutes via udm-arp-collector timer
+  ▼
+udm-arp-collector.py v2
+  │  Enriches: OUI vendor (194K entries) + rDNS hostname
+  │  Loads: /opt/monitoring/data/device_names.json (static overrides)
+  │
+  ├── /opt/monitoring/textfile_collector/network_devices.prom
+  │     network_device_info{ip, mac, hostname, vendor, vlan, vlan_id} 1
+  │     network_device_count{vlan} N
+  │
+  ├── /opt/monitoring/data/network_devices.json
+  │     [{ip, hostname, vendor, vlan, vlan_id, mac}, ...]
+  │     → served by device-json-server.service on port 9117
+  │     → consumed by Akvorado orchestrator (5-min poll)
+  │
+  ├── /var/log/network-inventory-wazuh.log  (JSON events)
+  │     → Wazuh logcollector (log_format: json)
+  │     → decoder: network_inventory (prematch: {"source":"network_inventory")
+  │     → rules 100700-100707
+  │
+  └── /opt/monitoring/textfile_collector/network_inventory_state.prom
+        network_inventory_baseline_total
+        network_inventory_discovered_total
+        network_inventory_arp_conflicts_total
+        network_inventory_discovered_device{mac, ip, hostname, vendor, vlan}
+        network_inventory_arp_conflict_event{ip, old_mac, new_mac, vendor, vlan}
+        network_arp_collector_last_run
+```
+
+### State Diffing Logic (MAC-centric, DHCP-resilient)
+
+```
+For each device in ARP table:
+  mac = device.mac
+
+  if mac NOT in state.by_mac:
+    if mac in baseline → skip (baselined)
+    else → emit new_device event (level 6 or 10 if SecurityApps VLAN)
+    add to state.by_mac[mac]
+
+  elif state.by_ip[device.ip] != mac:
+    emit arp_conflict event (level 12 or 14 if SecurityApps VLAN)
+    update state.by_ip[device.ip] = mac
+
+  elif state.by_mac[mac].ip != device.ip:
+    emit dhcp_ip_changed event (level 3 — informational only)
+    update state.by_mac[mac].ip = device.ip
+    update state.by_ip[device.ip] = mac
+```
+
+Key design decision: state is keyed by MAC, not IP. DHCP IP changes do NOT trigger security alerts.
+ARP conflicts (same IP → different MAC) DO trigger high-level alerts as ARP spoofing indicators.
+
+### Baseline Workflow
+
+```
+1. Deploy: sudo bash /opt/monitoring/deploy-device-inventory.sh
+   → installs collector v2, copies device_names.json, sets up timers, installs Wazuh rules
+   → runs baseline-network-inventory.py (seals current ARP as source="baseline")
+
+2. Ongoing: collector runs every 5 min
+   → new MACs NOT in baseline → level 6+ alert
+   → IP changes for known MACs → level 3 (silent)
+   → MAC changes for known IPs → level 12+ alert
+
+3. To authorize new devices:
+   sudo python3 /opt/monitoring/baseline-network-inventory.py
+   → re-seals current ARP, merging new MACs into baseline
+
+4. To name devices:
+   Edit /opt/monitoring/device_names.json → {"<ip>": "<hostname>"}
+   → Takes effect on next 5-min collection cycle
+```
+
+### Alert Routing
+
+```
+New device on LAN VLAN → Wazuh rule 100702 (level 6) → Prometheus NetworkNewDeviceDetected (warning)
+New device on SecurityApps VLAN → Wazuh rule 100703 (level 10) → escalate immediately
+ARP conflict on LAN → Wazuh rule 100706 (level 12) → Prometheus NetworkARPConflict (critical)
+ARP conflict on SecurityApps → Wazuh rule 100707 (level 14) → critical, immediate investigation
+Collector stale >10min → Prometheus NetworkARPCollectorStale (warning)
+```
+
+## Memory Management Policy (Effective April 18, 2026)
+
+### Rule: All JVM processes MUST have explicit heap caps
+
+Auto-sizing (JVM calculating 1/4 of host RAM) caused the April 16 OOM event.
+On a 7.8 GB host running 4+ Java processes, auto-sizing results in each process
+targeting ~1985 MB heap, causing cascading swap exhaustion.
+
+### Current Caps
+
+| Process | Heap Cap | Docker Limit | Config |
+|---------|----------|--------------|--------|
+| Wazuh Indexer | -Xmx1g -Xms1g | systemd (no Docker) | /etc/wazuh-indexer/jvm.options |
+| Kafka broker | -Xmx1g | docker-compose.yml built-in | N/A |
+| OWASP ZAP | -Xmx384m -Xms128m | --memory 700m | /home/zap/.ZAP/.ZAP_JVM.properties |
+| Kafka UI | -Xmx256m -Xms64m | mem_limit: 512m | docker-compose.override.yml JAVA_OPTS |
+
+### Swap Policy
+- Target: swap < 75% of total capacity
+- Current: 4.4 GB / 8.0 GB (55%) — healthy
+- Alert threshold: SwapPressure Prometheus rule fires at 80% used on wazuh-server
+- Escalation: if swap consistently > 80% → trigger RAM upgrade decision
+
+### Adding New Java Services
+Before adding any new JVM-based service to wazuh-server:
+1. Check current memory budget (free -h + swap usage)
+2. Set explicit JAVA_OPTS with -Xmx<N>m AND Docker mem_limit
+3. Update the Memory Budget table in ARCHITECTURE.md
+4. Verify swap does not exceed 75% after deployment

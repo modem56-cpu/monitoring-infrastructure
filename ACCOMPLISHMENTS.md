@@ -4,7 +4,7 @@
 **Platform:** Prometheus + Grafana + Wazuh SIEM + Custom Collectors  
 **Hub:** 192.168.10.20 (wazuh-server)  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
-**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 16, 2026  
+**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 18, 2026  
 
 ---
 
@@ -190,16 +190,16 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 
 ---
 
-## Metrics at a Glance (Current — April 16, 2026)
+## Metrics at a Glance (Current — April 18, 2026)
 
 | Stat | Value |
 |------|-------|
 | Hosts monitored | 7 active + UDM Pro gateway |
 | Wazuh agents | 6 (000 manager, 001 vm-devops/5.131, 002 unraid/10.10, 003 movement-strategy, 004 win11-vm/1.253, 005 fathom-server/10.24) |
 | Prometheus scrape targets | 23 (all UP) |
-| Prometheus alerting rules | 36 (incl. 6 vmbackup rules) — 36 active, 0 firing |
+| Prometheus alerting rules | 39 (incl. 6 vmbackup rules, 3 network inventory) — 39 active, 0 firing |
 | Prometheus recording rules | 19 |
-| Grafana dashboards | 11 (incl. VM Backups, redesigned Google Workspace) |
+| Grafana dashboards | 12 (incl. VM Backups, redesigned Google Workspace, Network Inventory & Audit) |
 | Systemd timers | 10 |
 | Dashboard refresh interval | 3 minutes |
 | Prometheus retention | 90 days |
@@ -216,6 +216,11 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | JSON report | Auto-refreshed every 5min for AI analysis |
 | Git repository | github.com/modem56-cpu/monitoring-infrastructure |
 | Automated since | February 2026 (hardened & expanded April 2026) |
+| Network devices monitored (ARP baseline) | 80 MACs (90 ARP entries, 4 VLANs) |
+| Network inventory alerts | 3 Prometheus + 7 Wazuh rules (100700-100707) |
+| JVM heap caps | ZAP: 384m, Kafka UI: 256m, Wazuh Indexer: 1g, Kafka: 1g (all explicit) |
+| Swap capacity | 8 GB (expanded April 18, 2026 from 4 GB) |
+| Security audit overall score | B (7.2/10) — April 18, 2026 |
 
 ### 20. Wazuh Indexer OOM Resolution — April 16, 2026
 
@@ -264,3 +269,98 @@ Diagnosed and resolved a `java.lang.OutOfMemoryError: Java heap space` crash on 
 - **Detection gap:** Backups ran weekly but faithfully backed up the empty disk (6.4 MB compressed). No monitoring existed to flag suspiciously small backups.
 - **Resolution:** Rebuilt as standalone VM at 192.168.10.24 with full monitoring. Deployed vmbackup-prom.sh on Unraid to prevent recurrence.
 - **Prevention:** Backup size monitoring now alerts on any VM backup under 50 MB. Dashboard shows backup health at a glance in Fleet Overview.
+
+---
+
+### 21. Network Device Inventory & Security Baseline — April 18, 2026
+
+Full network inventory system deployed:
+- Network device inventory baseline sealed: 80 unique MACs across 90 ARP entries (4 VLANs: LAN, SecurityApps, Dev, VLAN4)
+- Updated udm-arp-collector to v2: hostname overrides via device_names.json, MAC-centric state tracking (not IP-centric — DHCP-resilient), Wazuh JSON export, Prometheus audit metrics
+- State file: /opt/monitoring/data/network_inventory_state.json — tracks by_mac and by_ip index for ARP conflict detection
+- Wazuh decoder + rules 100700-100707 installed: inventory_summary (level 2), new_device (level 6), new_device on SecurityApps VLAN (level 10), unknown_vendor_sensitive_vlan (level 10), dhcp_ip_changed (level 3), arp_conflict (level 12), arp_conflict SecurityApps (level 14)
+- Prometheus alert rules: NetworkNewDeviceDetected (warning), NetworkARPConflict (critical), NetworkARPCollectorStale (warning)
+- Grafana dashboard: "Network Inventory & Audit" (UID: network-inventory) — 7 panels: stat cards (total devices, baseline count, new devices post-baseline, ARP conflicts, collector last run), devices-per-VLAN timeseries, new device table, ARP conflict table, full inventory table
+- Network inventory HTML report at http://192.168.10.20:8088/network_inventory.html — sortable, searchable, auto-refresh 5min, VLAN color badges
+- monitoring-report.timer enabled: regenerates monitoring_report.json every 5 minutes
+- Named devices: 28 of 90 (62 still unnamed — ongoing identification effort)
+- deploy-device-inventory.sh: 11-step idempotent deploy script (all root ops in one script)
+
+---
+
+### 22. Memory Management & JVM Optimization — April 18, 2026
+
+Diagnosed and resolved chronic swap pressure that caused the April 16 OOM event:
+
+Root cause: 4 Java processes all auto-sized JVM heap to 1/4 of host RAM (~1985 MB each) on a 7.8 GB host running Kafka + Wazuh Indexer + ZAP + Kafka UI simultaneously. Swap reached 3.9/4.0 GB (98%) — the exact condition that caused the April 16 indexer OOM.
+
+Fixes applied:
+1. ZAP (OWASP ZAP proxy): heap 1985m → 384m via .ZAP_JVM.properties injection, Docker limit 700m. Script: fix-zap-memory.sh
+2. Kafka UI (akvorado-kafka-ui-1): heap auto → 256m via JAVA_OPTS in docker-compose.override.yml, Docker mem_limit 512m
+3. Swap expansion: added /swap2.img (4 GB), total swap 4 GB → 8 GB, persisted in /etc/fstab. Script: expand-swap.sh
+
+Result:
+- Before: Swap 3.9/4.0 GB (98% — critical, OOM imminent)
+- After: Swap 4.4/8.0 GB (55% — healthy headroom)
+- ZAP memory: 495 MiB/512 MiB (96%, dangerous) → 477 MiB/700 MiB (68%)
+- Kafka UI memory: ~470 MB swap → 281 MiB/512 MiB (55%)
+- Total swap freed from JVM caps: ~1.1 GB
+
+---
+
+### 23. ContainerDown Alert False Positive Fix — April 18, 2026
+
+Fixed ContainerDown Prometheus alert producing false positives for akvorado-clickhouse-1.
+Root cause: Docker cAdvisor creates a new container_last_seen series per unique label set (includes restartcount label). When a container restarts, the old series (restartcount: N) stops updating but persists in TSDB. The old series exceeds the 120s threshold, firing the alert even though the container is running.
+Fix: Changed alert expression from `(time() - container_last_seen{name!=""}) > 120` to `(time() - max by (name, instance, job, alias) (container_last_seen{name!=""})) > 120` — takes the freshest timestamp per container name, ignoring stale series from previous restart counts.
+Script: fix-container-down-alert.sh
+
+---
+
+### 24. Google Workspace Storage Accuracy Fix — April 18, 2026
+
+Fixed two compounding bugs that caused the org storage % to show 30.93% instead of the true ~56-70%:
+1. generate-report.py used only gworkspace_org_storage_used_bytes (personal storage only, ~1.16 TB) without adding shared drive storage (~0.96 TB). Fixed to sum both: used_bytes = personal_bytes + shared_bytes
+2. gworkspace-collector shared drive page cap: 50-page limit (50k files) was truncating large drives like Yokly USA (>50k files, 1.36 TB actual). Removed cap (now while True). Fix in deploy-device-inventory.sh step 3.
+
+---
+
+## Security Audit & Platform Ratings — April 18, 2026
+
+> Assessed by IT Administration. Scale: A (excellent), B (good), C (needs improvement), D (critical gap). Intended for leadership review and improvement planning.
+
+| Domain | Rating | Score | Notes |
+|--------|--------|-------|-------|
+| Endpoint Monitoring Coverage | A- | 9/10 | 7 hosts + UDM Pro fully instrumented; SSH sessions, top processes, disk, net all visible |
+| Network Visibility | B+ | 8/10 | IPFIX flows via Akvorado + 90-device ARP inventory with VLAN mapping. Gap: MAC not in IPFIX (UDM Pro firmware limitation) |
+| SIEM Coverage | B+ | 8/10 | Wazuh 6 agents, auditd, FIM, active response, vuln detection, custom rules 100300-100707. Gap: no SOAR/playbook integration |
+| Security Alerting | B | 7/10 | Prometheus 39 rules (0 firing). Gap: no email/Slack delivery; webhook only; no on-call paging |
+| Identity & Access Visibility | C+ | 6/10 | SSH sessions tracked, Google Workspace extshare audited. Gap: 58 users unrestricted for external sharing; no MFA enforcement reporting |
+| Incident Response Readiness | C | 5/10 | No formal runbooks; no documented escalation path; Alertmanager webhook-only; no PagerDuty/Slack integration |
+| Backup & Recovery | B | 7/10 | VM backups monitored (age/size/health); fathom-vault incident documented; gap: no off-site backup; no tested recovery runbook |
+| Vulnerability Management | B- | 6/10 | Wazuh vuln detection enabled (60m feeds). Gap: no formal SLA, no patch tracking dashboard, auditd on remote agents pending |
+| Platform Reliability | B+ | 8/10 | Two OOM incidents resolved (April 13, April 16). Swap expanded to 8 GB. All JVM heaps explicitly capped. 98% uptime since April hardening |
+| Documentation Quality | B+ | 8/10 | Architecture, workflow, scripts, accomplishments documented. Gap: no incident response runbooks; no DR procedures |
+| Configuration Management | B | 7/10 | Git-managed, idempotent scripts. Gap: git commit overdue; no CI/CD validation; no secrets management (SSH keys in scripts) |
+| Compliance Posture | C+ | 6/10 | No formal compliance framework mapped. Wazuh SCA runs CIS benchmarks. Gap: no HIPAA/SOC2 mapping; no audit logging SLA |
+
+**Overall Platform Score: B (7.2/10)**
+
+### Priority Improvement Areas
+
+1. **Critical (resolve within 30 days):**
+   - Alertmanager email/Slack — currently no team visibility when alerts fire
+   - apt-mark hold wazuh-agent — prevent recurrence of April 13 manager wipeout
+   - git commit all pending changes — repository is 3+ weeks behind live config
+
+2. **High (resolve within 60 days):**
+   - Incident response runbooks for each alert category
+   - auditd deployment on all remote agents (vm-devops, unraid-tower, movement-strategy, fathom-vault)
+   - Google Workspace extshare policy — 58 unrestricted users is a data loss risk
+   - Wazuh FIM fix for unraid-tower (agent registered with bridge IP, not LAN IP)
+
+3. **Medium (resolve within 90 days):**
+   - Grafana ClickHouse datasource — enable per-device flow analytics in Grafana
+   - RAM upgrade (+4-8 GB) or Kafka migration off wazuh-server
+   - Dashboard authentication on port 8088
+   - Duplicate MAC investigation (192.168.10.24 and 192.168.10.25 share MAC 52:54:00:ad:42:13)

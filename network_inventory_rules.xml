@@ -1,0 +1,67 @@
+<group name="network_inventory,">
+
+  <!-- ─── Base match ───────────────────────────────────────────── -->
+  <rule id="100700" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="source">network_inventory</field>
+    <description>Network inventory event from UDM ARP collector</description>
+    <group>network_inventory,</group>
+  </rule>
+
+  <!-- ─── Inventory summary (every 5 min, below alert threshold) ── -->
+  <rule id="100701" level="2">
+    <if_sid>100700</if_sid>
+    <field name="event">inventory_summary</field>
+    <description>Network inventory: $(total) devices ($(named) named) — $(new_this_run) new, $(dhcp_changes) DHCP changes, $(arp_conflicts) ARP conflicts</description>
+    <group>network_inventory,summary,</group>
+  </rule>
+
+  <!-- ─── New device (new MAC, any VLAN) ───────────────────────── -->
+  <rule id="100702" level="6">
+    <if_sid>100700</if_sid>
+    <field name="event">new_device</field>
+    <description>New device on network: $(ip) MAC=$(mac) vendor=$(vendor) VLAN=$(vlan)</description>
+    <group>network_inventory,new_device,</group>
+  </rule>
+
+  <!-- ─── New device on SecurityApps VLAN ─────────────────────── -->
+  <rule id="100703" level="10">
+    <if_sid>100702</if_sid>
+    <field name="vlan">SecurityApps</field>
+    <description>New device on SecurityApps VLAN: $(ip) MAC=$(mac) ($(vendor)) — verify this device is authorized</description>
+    <group>network_inventory,new_device,sensitive_vlan,</group>
+  </rule>
+
+  <!-- ─── Unknown vendor on sensitive VLAN ─────────────────────── -->
+  <rule id="100704" level="10">
+    <if_sid>100700</if_sid>
+    <field name="event">unknown_device_sensitive_vlan</field>
+    <description>Unknown vendor device on sensitive VLAN $(vlan): $(ip) MAC=$(mac) — investigate immediately</description>
+    <group>network_inventory,unknown_device,sensitive_vlan,</group>
+  </rule>
+
+  <!-- ─── DHCP IP change (normal, informational only) ──────────── -->
+  <rule id="100705" level="3">
+    <if_sid>100700</if_sid>
+    <field name="event">dhcp_ip_changed</field>
+    <description>DHCP IP change: $(mac) ($(vendor)/$(hostname)) moved $(old_ip) → $(new_ip) on $(vlan)</description>
+    <group>network_inventory,dhcp,</group>
+  </rule>
+
+  <!-- ─── ARP conflict — same IP, different MAC ────────────────── -->
+  <rule id="100706" level="12">
+    <if_sid>100700</if_sid>
+    <field name="event">arp_conflict</field>
+    <description>ARP conflict: $(ip) MAC changed $(old_mac) → $(new_mac) ($(vendor)) on $(vlan) — possible ARP spoofing or device swap</description>
+    <group>network_inventory,arp_conflict,</group>
+  </rule>
+
+  <!-- ─── ARP conflict on SecurityApps VLAN ────────────────────── -->
+  <rule id="100707" level="14">
+    <if_sid>100706</if_sid>
+    <field name="vlan">SecurityApps</field>
+    <description>CRITICAL: ARP conflict on SecurityApps VLAN — $(ip) MAC changed $(old_mac) → $(new_mac) — investigate immediately</description>
+    <group>network_inventory,arp_conflict,sensitive_vlan,</group>
+  </rule>
+
+</group>

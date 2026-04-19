@@ -1,5 +1,7 @@
 # Yokly/Agapay Infrastructure Monitoring Platform
 
+**Last updated: April 18, 2026**
+
 On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado network flow analysis, custom textfile collectors, and auto-generated HTML dashboards. Managed by Brian Monte (IT Admin).
 
 **Hub:** `192.168.10.20` (wazuh-server, Ubuntu 24.04, 8 GB RAM, 4 CPU)  
@@ -25,7 +27,7 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 | UDM Pro | 192.168.10.1 | Gateway / Firewall | SNMP (if_mib) + blackbox + syslog→Wazuh + ARP→Akvorado | syslog only | UP |
 | Google Workspace | cloud | SaaS (Yokly/Agapay) | gworkspace-collector v2 (API) | — | UP |
 
-**LAN Devices (via UDM ARP Collector):** 90–94 active devices across 4 VLANs enriching Akvorado flow data with hostnames, VLAN, and vendor.
+**Network Inventory (via UDM ARP Collector v2):** 90 ARP entries, 80 MAC baseline, 4 VLANs (LAN, SecurityApps, Dev, VLAN4) — new devices trigger Wazuh alerts.
 
 ---
 
@@ -33,11 +35,11 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 
 ### Prometheus Monitoring
 - **23 scrape targets** — 7 hosts + SNMP + blackbox + cAdvisor + Akvorado + self
-- **36 alerting rules** across `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`, `vmbackup.rules.yml`
+- **39 alerting rules** across `blackbox.rules.yml`, `infrastructure.rules.yml`, `containers.rules.yml`, `akvorado.rules.yml`, `vmbackup.rules.yml`, `network.rules.yml`
 - **19 recording rules** in `recording.rules.yml`
 - **90-day retention**, admin API enabled
 
-### Grafana Dashboards (11)
+### Grafana Dashboards (12)
 
 | Dashboard | URL | Description |
 |-----------|-----|-------------|
@@ -50,6 +52,7 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 | Akvorado Flow Pipeline | `/d/akvorado` | Inlet/outlet/orchestrator, flow rates, Kafka, ClickHouse (12 panels) |
 | Google Workspace | `/d/google-workspace` | Users, storage, shared drives, events, 50GB enforcement |
 | VM Backups | `/d/vm-backups` | Unraid VM backup age, size, health, definition status |
+| Network Inventory & Audit | `/d/network-inventory` | ARP devices, MAC baseline, new device alerts, ARP conflicts |
 | HTML Reports Hub | `/d/html-reports` | Embedded HTML dashboards |
 | Export Reports | `/d/export-reports` | JSON download for AI analysis |
 
@@ -65,12 +68,19 @@ On-premise + cloud monitoring using Prometheus, Grafana, Wazuh SIEM, Akvorado ne
 | Dictionary | 5.4M entries in ClickHouse `default.networks` (1.21 GiB) |
 | Console fields | Src/Dst Net Name (hostname), Src/Dst Net Tenant (VLAN), Src/Dst Net Role (vendor) |
 
+### Network Device Inventory
+- **90 ARP devices** across 4 VLANs (LAN, SecurityApps, Dev, VLAN4)
+- **80 MAC baseline** established April 18, 2026 — new devices trigger Wazuh alerts
+- **ARP conflict detection** — same IP → different MAC triggers level 12 (potential ARP spoofing)
+- HTML inventory at `http://192.168.10.20:8088/network_inventory.html`
+- Grafana dashboard: Network Inventory & Audit (UID: network-inventory)
+
 ### Wazuh SIEM
 
 | Component | Details |
 |-----------|---------|
-| Active agents | 6 (000 manager, 001–005; re-assigned April 13 after manager recovery) |
-| Custom rules | 100300–100307 (Prometheus), 100400–100407 (UDM), 100500–100508 (Google Workspace) |
+| Active agents | 6 (000 manager, 001 vm-devops, 002 unraid-tower, 003 movement-strategy, 004 win11-vm, 005 fathom-vault) |
+| Custom rules | 100300–100307 (Prometheus), 100400–100407 (UDM), 100500–100508 (Google Workspace), 100700–100707 (Network Inventory) |
 | auditd | 20+ rules: identity, SSH keys, priv-esc, root, cron, systemd, Docker, WireGuard, kernel |
 | FIM | /root/.ssh, crontabs, /etc/wireguard, docker-compose.yml, prometheus.yml |
 | Active Response | firewall-drop on SSH brute force (rule 5763, 1hr block) |
@@ -164,7 +174,7 @@ monitoring-infrastructure/
 | Container | Port | Purpose |
 |-----------|------|---------|
 | `prometheus` | 9090 (localhost) | TSDB + scraping, 90-day retention |
-| `grafana` | 3000 (LAN) | 10 dashboards |
+| `grafana` | 3000 (LAN) | 12 dashboards |
 | `alertmanager` | 9093 (localhost) | Alert routing (webhook receiver) |
 | `node-exporter` | internal | Host metrics + textfile collector |
 | `blackbox-exporter` | 9115 | ICMP/TCP/HTTP probes |
