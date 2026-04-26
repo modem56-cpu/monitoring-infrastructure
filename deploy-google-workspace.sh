@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SA_KEY="/opt/monitoring/gam-project-gf5mq-97886701cbdd.json"
+SA_KEY="/keys/gam-project-gf5mq-97886701cbdd.json"
 ADMIN_EMAIL="brian.monte@yokly.gives"
 LOGFILE="/var/log/gworkspace-wazuh.log"
 PROMFILE="/opt/monitoring/textfile_collector/gworkspace.prom"
@@ -28,7 +28,7 @@ Collects: admin audit logs, login events, drive storage, security alerts
 import json, sys, datetime, os, math
 from pathlib import Path
 
-SA_KEY = os.environ.get("SA_KEY", "/opt/monitoring/gam-project-gf5mq-97886701cbdd.json")
+SA_KEY = os.environ.get("SA_KEY", "/keys/gam-project-gf5mq-97886701cbdd.json")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "brian.monte@yokly.gives")
 LOGFILE = Path(os.environ.get("LOGFILE", "/var/log/gworkspace-wazuh.log"))
 PROMFILE = Path(os.environ.get("PROMFILE", "/opt/monitoring/textfile_collector/gworkspace.prom"))
@@ -373,7 +373,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/monitoring/bin/gworkspace-collector.py
-Environment=SA_KEY=/opt/monitoring/gam-project-gf5mq-97886701cbdd.json
+Environment=SA_KEY=/keys/gam-project-gf5mq-97886701cbdd.json
 Environment=ADMIN_EMAIL=brian.monte@yokly.gives
 Environment=LOGFILE=/var/log/gworkspace-wazuh.log
 Environment=PROMFILE=/opt/monitoring/textfile_collector/gworkspace.prom

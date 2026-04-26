@@ -66,6 +66,34 @@ find /opt/monitoring -maxdepth 1 -name "*.png" -delete 2>/dev/null
 echo "  Deleted $count screenshots"
 
 echo ""
+echo "=== Step 10: Truncate large wazuh/prometheus log files ==="
+for logfile in \
+  /var/log/root_guard_wazuh.log \
+  /var/log/root_guard_wazuh_cron.log \
+  /var/log/prometheus-wazuh.log; do
+  if [ -f "$logfile" ]; then
+    size=$(du -sh "$logfile" | cut -f1)
+    truncate -s 0 "$logfile"
+    echo "  Truncated $logfile (was $size)"
+  fi
+done
+
+echo ""
+echo "=== Step 11: Rotate akvorado mesh log ==="
+meshlog=/opt/monitoring/logs/akvorado_mesh.jsonl
+if [ -f "$meshlog" ]; then
+  size=$(du -sh "$meshlog" | cut -f1)
+  truncate -s 0 "$meshlog"
+  echo "  Truncated akvorado_mesh.jsonl (was $size)"
+fi
+
+echo ""
+echo "=== Step 12: Clean old kern/auth compressed logs ==="
+find /var/log -name "kern.log.*.gz" -mtime +7 -delete 2>/dev/null
+find /var/log -name "auth.log.*.gz" -mtime +7 -delete 2>/dev/null
+echo "  Cleaned old compressed kernel/auth logs"
+
+echo ""
 echo "After:"
 df -h / | tail -1
 

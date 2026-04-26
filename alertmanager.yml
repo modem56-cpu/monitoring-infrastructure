@@ -1,37 +1,55 @@
 global:
   resolve_timeout: 5m
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'brian.monte@yokly.gives'
+  smtp_auth_username: 'brian.monte@yokly.gives'
+  smtp_auth_password: 'REPLACE_WITH_GMAIL_APP_PASSWORD'
+  smtp_require_tls: true
 
 route:
   group_by: ['alertname', 'instance']
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
-  receiver: default
+  receiver: email-brian
 
   routes:
     - match:
         severity: critical
-      receiver: default
+      receiver: email-brian
+      group_wait: 10s
       repeat_interval: 1h
 
-receivers:
-  - name: default
-    webhook_configs:
-      - url: 'http://prometheus:9090/api/v1/alerts'
-        send_resolved: true
+    - match:
+        severity: warning
+      receiver: email-brian
+      repeat_interval: 4h
 
-# To add email, uncomment and configure:
-# global:
-#   smtp_smarthost: 'smtp.gmail.com:587'
-#   smtp_from: 'alerts@yourdomain.com'
-#   smtp_auth_username: 'alerts@yourdomain.com'
-#   smtp_auth_password: 'app-password-here'
-#
-# receivers:
-#   - name: default
-#     email_configs:
-#       - to: 'admin@yourdomain.com'
-#         send_resolved: true
+    - match:
+        severity: info
+      receiver: email-brian
+      repeat_interval: 24h
+
+receivers:
+  - name: email-brian
+    email_configs:
+      - to: 'brian.monte@yokly.gives'
+        send_resolved: true
+        headers:
+          subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }} — Yokly/Agapay Monitoring'
+        html: |
+          <h3>{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}</h3>
+          {{ range .Alerts }}
+          <p>
+            <strong>Alert:</strong> {{ .Labels.alertname }}<br>
+            <strong>Severity:</strong> {{ .Labels.severity }}<br>
+            <strong>Instance:</strong> {{ .Labels.instance }}<br>
+            <strong>Summary:</strong> {{ .Annotations.summary }}<br>
+            <strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}<br>
+            {{ if .EndsAt }}<strong>Resolved:</strong> {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}<br>{{ end }}
+          </p>
+          {{ end }}
+          <p><a href="http://192.168.10.20:3000/d/security-ops-center">Open Security Operations Center</a></p>
 
 inhibit_rules:
   - source_match:

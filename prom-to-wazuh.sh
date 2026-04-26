@@ -143,3 +143,98 @@ for r in data.get('data',{}).get('result',[]):
 " 2>/dev/null | while IFS='|' read -r inst alias val; do
   emit "SwapPressure" "$inst" "$alias" "warning" "$val" "Swap at ${val}% on $inst ($alias)"
 done
+
+# ============================================================
+# 8. GWorkspace — External Sharing Unrestricted
+# ============================================================
+query 'gworkspace_external_sharing_unrestricted > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while IFS='|' read -r val; do
+  emit "GWorkspaceExternalShare" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "GWorkspace: ${val} drives have unrestricted external sharing"
+done
+
+# ============================================================
+# 9. GWorkspace — Shared Drive Rapid Growth
+# ============================================================
+query 'gworkspace_shared_drive_growth_gb > 5' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    m = r['metric']
+    drive = m.get('drive_name','unknown')
+    val = r['value'][1]
+    print(f'{drive}|{val}')
+" 2>/dev/null | while IFS='|' read -r drive val; do
+  emit "GWorkspaceDriveGrowth" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Shared drive '${drive}' grew ${val} GB recently"
+done
+
+# ============================================================
+# 10. Employee Reconciliation — Orphaned GW Accounts
+# ============================================================
+query 'employee_reconcile_orphaned_accounts > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "EmployeeOrphanedAccounts" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Employee reconcile: ${val} GW accounts have no employee roster match"
+done
+
+# ============================================================
+# 11. Employee Reconciliation — Unauthorized Admin
+# ============================================================
+query 'employee_reconcile_admin_unregistered > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "EmployeeUnauthorizedAdmin" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Employee reconcile: ${val} unauthorized GW admin accounts detected"
+done
+
+# ============================================================
+# 12. Network — New Device Detected
+# ============================================================
+query 'network_inventory_new_devices_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "NetworkNewDevice" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Network inventory: ${val} new/unknown device(s) detected on LAN"
+done
+
+# ============================================================
+# 13. Network — ARP Conflict (possible spoofing)
+# ============================================================
+query 'network_inventory_arp_conflicts_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "NetworkARPConflict" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Network inventory: ${val} ARP conflicts detected — possible MAC spoofing"
+done
+
+# ============================================================
+# 14. Unraid Array Usage (> 90%)
+# ============================================================
+query 'tower_unraid_array_used_percent > 90' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    m = r['metric']
+    target = m.get('target','')
+    val = r['value'][1]
+    print(f'{target}|{val}')
+" 2>/dev/null | while IFS='|' read -r target val; do
+  emit "UnraidArrayFull" "$target" "unraid" "critical" "$val" "Unraid array at ${val}% capacity on ${target}"
+done

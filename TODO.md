@@ -1,4 +1,4 @@
-# Next Steps & Roadmap — April 18, 2026
+# Next Steps & Roadmap — April 26, 2026
 
 ## Completed — Full History
 
@@ -52,32 +52,54 @@
 - [x] Grafana "Network Inventory & Audit" dashboard (UID: network-inventory)
 - [x] Network inventory HTML report at :8088/network_inventory.html
 
+### April 26, 2026 — Wazuh-Grafana, SOC Dashboard, Platform Hardening
+- [x] Wazuh Indexer wired into Grafana as Elasticsearch datasource (172.18.0.1:9200)
+- [x] iptables rule: Docker subnet (172.18.0.0/16) → host port 9200 (added via fix-grafana-wazuh-indexer.sh)
+- [x] Security Operations Center dashboard — merged Alert CC + Wazuh Security Events (32 panels, 8 rows)
+- [x] Export Reports dashboard at /d/export-reports (24 panels, CSV/JSON export enabled)
+- [x] Removed 2 duplicate dashboards (Alert Command Center, Wazuh Security Events)
+- [x] All 14 dashboards exported to /opt/monitoring/dashboards/
+- [x] prom-to-wazuh.sh expanded from 7 to 14 checks (GWorkspace, employee reconcile, network)
+- [x] Alertmanager.yml rewritten — Gmail SMTP replaces broken webhook receiver
+- [x] Employee authorized_admins.json defined (5 admins; deploy pending root run)
+- [x] 6 historical Wazuh Indexer events updated (csednie.regasa/josh/markangel rule.level 12→3)
+- [x] generate-report.py wazuh_agents fixed — reads from Wazuh Indexer, 6 agents returning
+- [x] PLATFORM_REVIEW.md created (7.5/10, P1–P4 gap analysis)
+- [x] RESTORATION_GUIDE.md created (15 sections, full restore-from-scratch procedure)
+
 ---
 
 ## CRITICAL — Resolve Immediately (This Week)
 
+- [ ] **Run `sudo bash /opt/monitoring/fix-p3-root.sh`**
+  - Deploys: authorized_admins.json → /opt/monitoring/data/, updated reconcile script, iptables-persistent, logrotate configs, employees-sheet-sync.timer, Prometheus alert rules (Unraid array/disk + HostDisk), Prometheus reload
+  - Must be run as root; script is idempotent
+
+- [ ] **Set Gmail app password in alertmanager.yml**
+  - Edit `/opt/monitoring/alertmanager.yml`, replace `REPLACE_WITH_GMAIL_APP_PASSWORD` with real app password
+  - Then: `docker restart alertmanager`
+  - Without this, no alert emails will be delivered
+
 - [ ] **Git commit all changes** ← OVERDUE (3+ weeks behind)
-  - Stage: ARP collector v2, device_names.json, deploy scripts, akvorado config, docker-compose.override.yml, ClickHouse server.xml, all fix scripts, all doc updates
+  - Stage: ARP collector v2, device_names.json, deploy scripts, akvorado config, docker-compose.override.yml, ClickHouse server.xml, SOC dashboard, export-reports dashboard, alertmanager.yml, generate-report.py, prom-to-wazuh.sh, all fix scripts, all doc updates
   - `cd /opt/monitoring && git add -A && git commit -m "..."`
 
 - [ ] **apt-mark hold wazuh-agent on wazuh-server**
   - `sudo apt-mark hold wazuh-agent`
   - Prevents recurrence of April 13 incident (agent install wiped manager package)
-  - One command, must be done
-
-- [ ] **Verify fathom-vaultserver backup (Saturday April 19, 2:05 AM)**
-  - Check: Grafana VM Backups dashboard / Prometheus `vmbackup_size_bytes`
-  - Expect: > 5 GB (was 6.4 MB = empty disk pre-rebuild)
 
 ---
 
 ## HIGH PRIORITY — Deliver Within 30 Days
 
-- [ ] **Alertmanager email/Slack notifications**
-  - Currently webhook-only — zero team visibility when alerts fire
-  - Define routing: critical → email+page, warning → Slack channel
-  - Required before platform is production-ready for ops handoff
-  - Files to edit: /opt/monitoring/alertmanager/alertmanager.yml
+- [ ] **Alertmanager email delivery — activate after app password set**
+  - Gmail SMTP is configured in alertmanager.yml; just needs app password + container restart
+  - Test: `amtool alert add --alertmanager.url=http://localhost:9093 test-alert severity=critical`
+
+- [ ] **Install Wazuh agents on remaining endpoints**
+  - Targets: Unraid Tower (10.10), VM DevOps (5.131), fathom-vault (10.24), Windows VM (1.253)
+  - **NEVER install wazuh-agent on the wazuh-server itself** (critical April 13 incident)
+  - Verify with: `sudo /var/ossec/bin/agent_control -l`
 
 - [ ] **Investigate duplicate MAC: 52:54:00:ad:42:13**
   - Appears at both 192.168.10.24 (fathom-vault) AND 192.168.10.25 (fathom-vault-2)

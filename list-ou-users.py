@@ -7,7 +7,7 @@ Usage:
 """
 import json, sys, os
 
-SA_KEY    = os.environ.get("SA_KEY", "/opt/monitoring/gam-project-gf5mq-97886701cbdd.json")
+SA_KEY    = os.environ.get("SA_KEY", "/keys/gam-project-gf5mq-97886701cbdd.json")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "brian.monte@yokly.gives")
 
 SCOPES = [

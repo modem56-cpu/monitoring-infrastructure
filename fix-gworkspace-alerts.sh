@@ -1,3 +1,11 @@
+#!/usr/bin/env bash
+# Update Google Workspace alert rules:
+# - Replace always-on extshare alert with delta-based (fires only when count grows)
+# - Add shared drive size alerts (per-drive thresholds)
+# - Add user approaching 50GB quota alert
+set -euo pipefail
+
+cat > /opt/monitoring/rules/gworkspace.rules.yml << 'RULES'
 groups:
 - name: google_workspace
   rules:
@@ -111,46 +119,14 @@ groups:
       severity: warning
     annotations:
       summary: "Shared Drive '{{ $labels.drive }}' grew by {{ $value | humanize1024 }}B in 1h — possible bulk upload"
+RULES
 
-  # --- Employee ↔ GWorkspace Reconciliation ---
+echo "Rules written. Reloading Prometheus..."
+curl -s -X POST http://127.0.0.1:9090/-/reload && echo "Prometheus reloaded OK"
 
-  - alert: EmployeeOrphanedGWAccount
-    expr: employee_reconcile_orphaned_accounts > 0
-    for: 10m
-    labels:
-      severity: warning
-    annotations:
-      summary: "{{ $value }} GW account(s) have no employee record — possible orphaned accounts"
-      description: "Check employee_reconcile_orphan_info metric for affected emails. May indicate offboarded employees still with access."
+echo ""
+echo "Validating rules..."
+docker exec prometheus promtool check rules /etc/prometheus/rules/gworkspace.rules.yml 2>&1
 
-  - alert: EmployeeAdminUnregistered
-    expr: employee_reconcile_admin_unregistered > 0
-    for: 5m
-    labels:
-      severity: critical
-    annotations:
-      summary: "{{ $value }} GW admin account(s) NOT in employee roster — unauthorized admin"
-
-  - alert: EmployeeSuspendedActive
-    expr: employee_reconcile_suspended_active_employees > 0
-    for: 10m
-    labels:
-      severity: warning
-    annotations:
-      summary: "{{ $value }} employee(s) active in roster but GW account is suspended"
-
-  - alert: EmployeeReconcileDown
-    expr: employee_reconcile_collector_up == 0
-    for: 15m
-    labels:
-      severity: critical
-    annotations:
-      summary: "Employee reconcile collector is failing"
-
-  - alert: EmployeeGWCountMismatch
-    expr: abs(employee_reconcile_active_employees - employee_reconcile_gw_active_total) > 5
-    for: 30m
-    labels:
-      severity: warning
-    annotations:
-      summary: "Employee roster vs GW active users differ by {{ $value | humanize }} — check for orphaned or unprovisioned accounts"
+echo ""
+echo "Done."

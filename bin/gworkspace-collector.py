@@ -7,7 +7,7 @@ import json, sys, datetime, os, time, random
 from pathlib import Path
 from datetime import date, timedelta
 
-SA_KEY = os.environ.get("SA_KEY", "/opt/monitoring/gam-project-gf5mq-97886701cbdd.json")
+SA_KEY = os.environ.get("SA_KEY", "/keys/gam-project-gf5mq-97886701cbdd.json")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "brian.monte@yokly.gives")
 LOGFILE = Path(os.environ.get("LOGFILE", "/var/log/gworkspace-wazuh.log"))
 PROMFILE = Path(os.environ.get("PROMFILE", "/opt/monitoring/textfile_collector/gworkspace.prom"))

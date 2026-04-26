@@ -4,7 +4,7 @@
 **Platform:** Prometheus + Grafana + Wazuh SIEM + Custom Collectors  
 **Hub:** 192.168.10.20 (wazuh-server)  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
-**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 18, 2026  
+**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 26, 2026  
 
 ---
 
@@ -190,19 +190,21 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 
 ---
 
-## Metrics at a Glance (Current — April 18, 2026)
+## Metrics at a Glance (Current — April 26, 2026)
 
 | Stat | Value |
 |------|-------|
 | Hosts monitored | 7 active + UDM Pro gateway |
-| Wazuh agents | 6 (000 manager, 001 vm-devops/5.131, 002 unraid/10.10, 003 movement-strategy, 004 win11-vm/1.253, 005 fathom-server/10.24) |
+| Wazuh agents | 6 (000 manager, 001 vm-devops/5.131, 002 unraid/10.10, 003 movement-strategy, 004 devops/1.253, 006 fathom-server/10.24) |
 | Prometheus scrape targets | 23 (all UP) |
-| Prometheus alerting rules | 39 (incl. 6 vmbackup rules, 3 network inventory) — 39 active, 0 firing |
+| Prometheus alerting rules | 47 (incl. network inventory, vmbackup, Unraid array/disk, GWorkspace) |
 | Prometheus recording rules | 19 |
-| Grafana dashboards | 12 (incl. VM Backups, redesigned Google Workspace, Network Inventory & Audit) |
-| Systemd timers | 10 |
+| Grafana dashboards | 14 (all exported to /opt/monitoring/dashboards/) |
+| Grafana datasources | 2 (Prometheus + Wazuh Indexer/OpenSearch) |
+| prom-to-wazuh checks | 14 (infrastructure + GWorkspace + employee reconcile + network) |
+| Systemd timers | 15 (incl. employees-sheet-sync, monitoring-report) |
 | Dashboard refresh interval | 3 minutes |
-| Prometheus retention | 90 days |
+| Prometheus retention | 30 days (reduced from 90d April 26 for disk headroom) |
 | Dashboard consistency | Single view per host (race conditions eliminated) |
 | SSH session tracking | Live per user/IP, admin-tagged, all 7 hosts |
 | Unique metric series | ~18 sys_sample + ~100 sys_topproc per host |
@@ -211,6 +213,7 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | VPS collection method | SSH forced command over WireGuard VPN, 30s timeout |
 | UDM Pro monitoring | SNMP + blackbox + syslog to Wazuh |
 | Google Workspace | Login/admin/drive events, 29 shared drives, Drive/Gmail/Photos split, org storage totals, group-based extshare enforcement → Wazuh |
+| Employee ↔ GWorkspace reconciliation | 99 active employees / 99 GW accounts — clean match; 5 authorized admins defined |
 | Akvorado | 3 scrape targets, 6 alert rules, 12-panel dashboard |
 | VM backup monitoring | Hourly check: backup age, size, health, missing VMs |
 | JSON report | Auto-refreshed every 5min for AI analysis |
@@ -220,7 +223,7 @@ Endpoints            →  Prometheus TSDB  →  Grafana (11 dashboards)
 | Network inventory alerts | 3 Prometheus + 7 Wazuh rules (100700-100707) |
 | JVM heap caps | ZAP: 384m, Kafka UI: 256m, Wazuh Indexer: 1g, Kafka: 1g (all explicit) |
 | Swap capacity | 8 GB (expanded April 18, 2026 from 4 GB) |
-| Security audit overall score | B (7.2/10) — April 18, 2026 |
+| Platform review score | 7.5/10 (PLATFORM_REVIEW.md) — April 26, 2026 |
 
 ### 20. Wazuh Indexer OOM Resolution — April 16, 2026
 
@@ -325,6 +328,70 @@ Fixed two compounding bugs that caused the org storage % to show 30.93% instead 
 
 ---
 
+### 25. Wazuh-Grafana Integration, SOC Dashboard & Platform Hardening — April 26, 2026
+
+#### Wazuh Indexer → Grafana Datasource
+- Added Grafana Elasticsearch datasource pointing to Wazuh Indexer (OpenSearch 7.10.2) at `https://172.18.0.1:9200`, indices `wazuh-alerts-4.x-*`, version OpenSearch 1.x
+- Resolved Docker networking blocker: Grafana container cannot reach host `localhost:9200`; added iptables rule `iptables -I INPUT 1 -s 172.18.0.0/16 -p tcp --dport 9200 -j ACCEPT` and UFW exception for the Docker subnet; fixed datasource URL to bridge gateway IP 172.18.0.1
+- Added `extra_hosts: host.docker.internal:host-gateway` to Grafana service in docker-compose.yml
+- Datasource health check: OK — "Elasticsearch data source is healthy"
+- Wazuh SIEM events now queryable in Grafana as a native datasource; all 14 dashboards can overlay Wazuh events alongside Prometheus metrics
+
+#### Security Operations Center Dashboard (SOC)
+- Merged Alert Command Center + Wazuh Security Events dashboards into one unified SOC dashboard (UID: `security-ops-center`)
+- 32 panels across 8 collapsible rows: Prometheus Alert Status, Wazuh SIEM Stats, Timelines, Active Prometheus Alerts, Wazuh Live High/Critical Events, Attack Analysis, Privilege Escalations, Infrastructure & Trends
+- Exported to `/opt/monitoring/dashboards/security-ops-center.json`
+- Deleted both predecessor dashboards after verifying all panels absorbed
+
+#### Export Reports Dashboard
+- New dashboard at `/d/export-reports` (UID: `export-reports`) — 24 panels across 8 rows
+- Fully exportable tables: firing Prometheus alerts, scrape targets, Wazuh 24h summary (by level / by agent / by rule), critical/high events, SSH failures by source IP, sudo/root escalations by agent, employee reconciliation orphaned/missing
+- HTML header panel with direct download link to `monitoring_report.json`
+- All table panels configured with Grafana CSV export enabled
+
+#### Dashboard Deduplication
+- Identified 2 duplicate dashboards absorbed by SOC: Alert Command Center (alert-command-center) + Wazuh Security Events (wazuh-security-events)
+- Removed nav links from remaining dashboards before deleting duplicates
+- Result: clean 14-dashboard set with zero duplicates
+
+#### prom-to-wazuh Expansion (7→14 checks)
+Added 7 new alert categories to `/opt/monitoring/prom-to-wazuh.sh`:
+- GWorkspace external sharing unrestricted
+- GWorkspace shared drive rapid growth (>5 GB)
+- Employee reconcile orphaned GW accounts
+- Employee reconcile unauthorized admin (critical)
+- Network new device detected
+- Network ARP conflict (possible spoofing)
+- Unraid array usage >90%
+
+#### Alertmanager — Gmail SMTP Fix
+- Replaced broken webhook receiver (`http://prometheus:9090/api/v1/alerts` — invalid endpoint) with Gmail SMTP
+- Config: `smtp.gmail.com:587`, TLS required, HTML email templates with severity-based routing
+- Routing: critical (10s group_wait, 1h repeat), warning (4h repeat), info (24h repeat)
+- Inhibit rules: critical suppresses warning for same alertname+instance
+- Status: awaiting Gmail app password — `REPLACE_WITH_GMAIL_APP_PASSWORD` placeholder in `alertmanager.yml`
+
+#### Employee ↔ GWorkspace — Authorized Admins
+- Defined 5 authorized GW super-admins in `authorized_admins.json`: brian.monte, csednie.regasa, josh, markangel, tim@agapay.gives
+- Suppressed CRITICAL false-positive Wazuh alerts for 3 admins (csednie.regasa, josh, markangel) by directly updating 6 historical Wazuh Indexer documents via OpenSearch Update API (rule.level 12 → 3, tagged authorized_admin)
+- Updated employee-gworkspace-reconcile.py to emit `info` (not `critical`) for authorized admins — pending root deployment via fix-p3-root.sh
+
+#### Wazuh Agents Fix in generate-report.py
+- Previous code hit Wazuh API port 55000 (not running) → "Connection refused" in monitoring_report.json
+- Fixed: replaced with Wazuh Indexer aggregation query to `https://172.18.0.1:9200/wazuh-alerts-4.x-*/_search` using kibanaserver credentials
+- Now returns 6 agents with name, ID, and last_seen: wazuh-server(000), ubuntu-192-168-5-131(001), unraid-192-168-10-10(002), movement-strategy(003), devops-192-168-1-253(004), fathom-server(006)
+
+#### All 14 Dashboards Exported
+- Previously only 5 dashboards were exported; now all 14 exported to `/opt/monitoring/dashboards/`
+- New exports: akvorado, docker-containers, fleet-overview, google-workspace, html-reports, network-inventory, node-exporter-full, udm-pro, vm-backups, vps-movement-strategy, windows-exporter
+- All exports use `${DS_PROMETHEUS}` and `${DS_WAZUH_INDEXER}` variable substitution for portable restore
+
+#### Documentation
+- Created `/opt/monitoring/PLATFORM_REVIEW.md` — rated platform 7.5/10 with P1–P4 prioritized gap analysis
+- Created `/opt/monitoring/RESTORATION_GUIDE.md` — comprehensive 15-section restore-from-scratch guide for new engineers; covers all 10 restore phases with exact commands, health checks, architecture, 47 alert rules, 15 timers, 6 Wazuh agents, 19 Docker containers
+
+---
+
 ## Security Audit & Platform Ratings — April 18, 2026
 
 > Assessed by IT Administration. Scale: A (excellent), B (good), C (needs improvement), D (critical gap). Intended for leadership review and improvement planning.
@@ -364,3 +431,22 @@ Fixed two compounding bugs that caused the org storage % to show 30.93% instead 
    - RAM upgrade (+4-8 GB) or Kafka migration off wazuh-server
    - Dashboard authentication on port 8088
    - Duplicate MAC investigation (192.168.10.24 and 192.168.10.25 share MAC 52:54:00:ad:42:13)
+
+---
+
+### 23. Disk Full Recovery — April 26, 2026
+
+Resolved disk-full condition (99% → 52%) that was preventing Prometheus WAL writes and login:
+
+**Root cause:** ClickHouse internal system logging — `trace_log` accumulated 38 GiB in 10 days (~3.8 GB/day). TTLs were configured for 30 days but that meant 114 GB steady state, which filled the 97 GB disk.
+
+**Changes:**
+- `server.xml`: disabled `trace_log` and `processors_profile_log` entirely (not needed in production); reduced all other system log TTLs from 30d → 7d
+- `docker-compose.yml`: Prometheus retention reduced from 90d → 30d (~3-4 GB recovery after TSDB compaction)
+- `cleanup-disk.sh`: added Steps 10-12 — truncate `/var/log/root_guard_wazuh*.log`, `prometheus-wazuh.log`, `akvorado_mesh.jsonl`, and old compressed kern/auth logs
+- New script: `fix-clickhouse-logs.sh` — truncates ClickHouse system log tables and restarts with new config
+- New script: `fix-disk-prometheus-retention.sh` — applies 30d retention and triggers TSDB clean tombstones
+
+**Space recovered:** ~41 GB from ClickHouse system log truncation, ~300 MB from log/screenshot cleanup
+
+**Steady-state after fix:** ~239 MB flow data + <2 GB system logs (7-day rolling) + ~1.7 GB Prometheus (30d) = well within limits

@@ -280,25 +280,59 @@ for r in pq("tower_ssh_sessions_user_src > 0"):
     sessions.append({"target": m.get("target", ""), "user": m.get("user", ""), "src": m.get("src", ""), "count": int(float(r["value"][1]))})
 report["ssh_sessions"] = sessions
 
-# === Wazuh Agents ===
+# === Wazuh Agents (via Wazuh Indexer — API port 55000 not enabled) ===
 try:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request("https://localhost:55000/security/user/authenticate?raw=true", method="POST")
-    req.add_header("Authorization", "Basic " + base64.b64encode(b"wazuh-wui:wazuh-wui").decode())
-    with urllib.request.urlopen(req, context=ctx, timeout=5) as r:
-        token = r.read().decode().strip()
-    req2 = urllib.request.Request("https://localhost:55000/agents?select=id,name,ip,status&limit=20")
-    req2.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req2, context=ctx, timeout=5) as r:
-        agents_data = json.loads(r.read().decode())
-    report["wazuh_agents"] = [
-        {"id": a["id"], "name": a["name"], "ip": a["ip"], "status": a["status"]}
-        for a in agents_data.get("data", {}).get("affected_items", [])
-    ]
+    wazuh_auth = "Basic " + base64.b64encode(b"kibanaserver:77RmIguYcnHPxjMJqG0EgeEsaIWLL3bE").decode()
+    wazuh_body = json.dumps({
+        "size": 0,
+        "query": {"range": {"@timestamp": {"gte": "now-1h"}}},
+        "aggs": {
+            "agents": {
+                "terms": {"field": "agent.name", "size": 50},
+                "aggs": {
+                    "agent_id":  {"terms": {"field": "agent.id",  "size": 1}},
+                    "last_seen": {"max":  {"field": "@timestamp"}}
+                }
+            }
+        }
+    }).encode()
+    req_w = urllib.request.Request(
+        "https://172.18.0.1:9200/wazuh-alerts-4.x-*/_search",
+        data=wazuh_body,
+        headers={"Authorization": wazuh_auth, "Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req_w, context=ctx, timeout=10) as r:
+        wd = json.loads(r.read().decode())
+    agents_out = []
+    for b in wd.get("aggregations", {}).get("agents", {}).get("buckets", []):
+        agent_id_buckets = b.get("agent_id", {}).get("buckets", [])
+        agents_out.append({
+            "name":      b["key"],
+            "id":        agent_id_buckets[0]["key"] if agent_id_buckets else "?",
+            "last_seen": b.get("last_seen", {}).get("value_as_string", ""),
+            "status":    "active"
+        })
+    report["wazuh_agents"] = agents_out
 except Exception as e:
     report["wazuh_agents"] = f"Error: {e}"
+
+# === Grafana Dashboard Exports ===
+# Embed portable dashboard JSONs so AI agents get full dashboard definitions
+# alongside live metrics in one payload.
+import glob as _glob
+DASH_DIR = "/opt/monitoring/dashboards"
+dashboards = {}
+for path in sorted(_glob.glob(f"{DASH_DIR}/*.json")):
+    name = os.path.basename(path).replace(".json", "")
+    try:
+        with open(path) as f:
+            dashboards[name] = json.load(f)
+    except Exception as e:
+        dashboards[name] = {"error": str(e)}
+report["grafana_dashboards"] = dashboards
 
 # === Output ===
 output = json.dumps(report, indent=2, default=str)
