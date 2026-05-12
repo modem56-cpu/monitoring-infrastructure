@@ -6,6 +6,9 @@ sshkeys/
 peer-*.conf
 gam-project-*.json
 
+# Allow Grafana dashboard exports (dashboards/*.json are source-of-truth)
+!dashboards/*.json
+
 # Runtime data
 logs/
 reports/
