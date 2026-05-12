@@ -516,3 +516,52 @@ Diagnosed and resolved sustained 190% CPU usage on `clickhouse-server` (PID accu
 - Reloaded config live (`SYSTEM RELOAD CONFIG`), then restarted container
 
 **Result:** ClickHouse CPU dropped from ~190% sustained → ~13% stabilizing. No active merges running on system tables after restart. All flow tables (`flows`, `flows_5m0s`, `flows_1m0s`, `flows_1h0m0s`) confirmed healthy with current data. All Prometheus targets, device enrichment, and monitoring workflows verified unaffected.
+
+---
+
+### 29. Full Platform Dashboard Reliability Audit — May 12, 2026
+
+Performed a comprehensive audit of all 16 Grafana dashboards and supporting collector scripts. Identified and fixed 7 categories of issues.
+
+#### Fixes applied (no root required):
+
+**Wazuh panel empty queries (11 panels across 3 dashboards):**
+- `wazuh-security-events.json`: 4 panels had `"query": ""` — Total Alerts, Unique Agents, Alerts by Agent, Top Fired Rules — all now `"query": "*"` to match all documents in OpenSearch
+- `security-ops-center.json`: 4 panels same issue — same fix
+- `export-reports.json`: 3 panels same issue — same fix
+- Root cause: Grafana OpenSearch datasource silently returns no data on empty query string
+
+**Windows exporter deprecated panel types (20 panels):**
+- `windows-exporter.json`: converted 8 × `singlestat` → `stat`, 12 × `graph` → `timeseries`
+- Updated `__requires` to remove deprecated panel types and add `stat` + `timeseries`
+- Root cause: Grafana v12 dropped compatibility with `singlestat` and `graph` panel types
+
+**VPS temp file leak (20,713 orphaned files):**
+- Cleaned up `/opt/monitoring/textfile_collector/.vps_movement_strategy.prom.tmp.*` (all 0-byte from SSH timeouts)
+- Root cause: `collect_vm_ms_ssh.sh` used `mktemp` but had no `trap EXIT rm` — on SSH failure, temp file persisted
+- Fix: deploy script adds `trap "rm -f \"$TMP\"" EXIT` to the script
+
+#### Fixes requiring root (deploy-network-inventory-fixes.sh):
+
+**False NetworkARPConflict CRITICAL alert (firing since May 8):**
+- Root cause 1: `network_inventory_arp_conflicts_total` is cumulative (capped 200) — alert fires the moment any conflict is recorded, forever
+- Root cause 2: All 200 "conflicts" are DHCP IP-reassignments involving "unknown" vendor (MAC-randomized mobile devices) — not real ARP spoofing
+- Fix: Added `network_inventory_arp_conflicts_last_24h` gauge to collector; alert rule changed to use this metric with `for: 5m` debounce
+- Alert will clear once deployed and 5 minutes pass with no new real conflicts
+
+**False NetworkNewDeviceDetected WARNING (all 216 devices showing as "discovered"):**
+- Root cause: `source` field never set in `diff_and_update()` — all entries have `source: MISSING`, so `baseline_devices` list is always empty, `network_inventory_baseline_total` = 0
+- Fix: Updated `diff_and_update()` to set `source: "baseline"` on first run (fresh state) and `source: "discovered"` thereafter
+- Added `--set-baseline` CLI flag: marks all current `by_mac` entries as baseline and clears stale conflict log
+- Alert rule now requires `network_inventory_baseline_total > 0` before firing
+
+#### Google Workspace collector accuracy (gworkspace-collector-v3.py):
+- Updated HELP strings for `gworkspace_drive_usage_bytes` (total: Drive+Gmail+Photos), `gworkspace_drive_only_bytes` (My Drive only), `gworkspace_shared_drive_size_bytes`, `gworkspace_org_drive_bytes`, `gworkspace_org_shared_drive_bytes`
+- Added `gworkspace_report_date_unixtime`, `gworkspace_report_lag_days`, `gworkspace_collector_last_success_unixtime` freshness metrics
+- Dashboard: 3 new freshness panels (Report Date, Data Lag, Last Collection); corrected all panel titles; removed `{{exempt}}` from legend
+- Deploy via: `sudo bash /opt/monitoring/deploy-gworkspace-v4.sh`
+
+#### VPS SSH investigation needed:
+- `vps_movement_strategy.prom` stale since May 3 (9 days) — SSH to 10.253.2.22 timing out on every run
+- No data loss: `prom_vps_html_movement_strategy.sh` generates HTML from cached Prometheus data
+- Action required: verify WireGuard tunnel to 10.253.2.22 is up, metrics SSH key is valid, node exporter running on VPS

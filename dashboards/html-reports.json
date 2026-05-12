@@ -1,0 +1,236 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus"
+    },
+    {
+      "name": "DS_WAZUH_INDEXER",
+      "label": "Wazuh Indexer",
+      "type": "datasource",
+      "pluginId": "elasticsearch"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "elasticsearch",
+      "name": "Elasticsearch",
+      "version": "1.0.0"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 101,
+      "title": "Unraid Tower (192.168.10.10)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/tower_192_168_10_10_9100.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 102,
+      "title": "Wazuh Server (192.168.10.20)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 2,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/tower_192_168_10_20_9100.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 103,
+      "title": "VM DevOps (192.168.5.131)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 3,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/tower_192_168_5_131_9100.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "id": 104,
+      "title": "Windows VM (192.168.1.253)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "id": 4,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/win_192_168_1_253_9182.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      },
+      "id": 105,
+      "title": "Fathom Vault (192.168.10.24)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 97
+      },
+      "id": 5,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/tower_192_168_10_24_9100.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 120
+      },
+      "id": 106,
+      "title": "Movement Strategy (31.170.165.94)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 121
+      },
+      "id": 6,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8088/vps_movement_strategy.html\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 144
+      },
+      "id": 107,
+      "title": "Akvorado (Network Flow)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 22,
+        "w": 24,
+        "x": 0,
+        "y": 145
+      },
+      "id": 7,
+      "options": {
+        "content": "<iframe src=\"http://192.168.10.20:8082/visualize\" style=\"width:100%;height:100%;border:none;\"></iframe>",
+        "mode": "html"
+      },
+      "title": "",
+      "type": "text"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "reports",
+    "html",
+    "hub"
+  ],
+  "timezone": "browser",
+  "title": "HTML Reports Hub",
+  "uid": "html-reports"
+}
