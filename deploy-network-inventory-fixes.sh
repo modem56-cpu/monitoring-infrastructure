@@ -90,15 +90,23 @@ else
     curl -s -X POST http://localhost:9090/-/reload && echo "  Prometheus reloaded via API"
 fi
 
-# 4b. Fix collect_vm_ms_ssh.sh: add trap to delete temp file on failure
+# 4b. Fix collect_vm_ms_ssh.sh: known_hosts append bug + temp file trap
 echo ""
-echo "--- Step 4b: Fix collect_vm_ms_ssh.sh temp file leak ---"
-# Add 'trap "rm -f \\"$TMP\\"" EXIT' right after TMP= line
+echo "--- Step 4b: Fix collect_vm_ms_ssh.sh ---"
+# Fix >> to > so known_hosts is replaced (not appended) each run
+# Without this fix, the file grows ~3 lines every 3 minutes → 109k+ lines → SSH ConnectTimeout
+if grep -q 'ssh-keyscan.*>> "\$KNOWN"' /opt/monitoring/bin/collect_vm_ms_ssh.sh; then
+    sed -i 's/ssh-keyscan -H "\$HOST" >> "\$KNOWN"/ssh-keyscan -H "$HOST" > "$KNOWN"/' /opt/monitoring/bin/collect_vm_ms_ssh.sh
+    echo "  Fixed: ssh-keyscan >> → > (overwrite, not append)"
+else
+    echo "  known_hosts fix already applied — skipping"
+fi
+# Add EXIT trap if not already present (protects against orphaned tmp files on SSH failure)
 if ! grep -q 'trap.*rm.*TMP' /opt/monitoring/bin/collect_vm_ms_ssh.sh; then
     sed -i '/^TMP=.*mktemp/a trap "rm -f \\"$TMP\\"" EXIT' /opt/monitoring/bin/collect_vm_ms_ssh.sh
     echo "  Added EXIT trap to collect_vm_ms_ssh.sh"
 else
-    echo "  Trap already present — skipping"
+    echo "  EXIT trap already present — skipping"
 fi
 
 echo ""
