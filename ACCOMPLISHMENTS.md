@@ -4,7 +4,7 @@
 **Platform:** Prometheus + Grafana + Wazuh SIEM + Custom Collectors  
 **Hub:** 192.168.10.20 (wazuh-server)  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
-**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated April 26, 2026  
+**Delivered:** February 2026 — Hardened & Stabilized April 2026 | Updated May 12, 2026  
 
 ---
 
@@ -450,3 +450,69 @@ Resolved disk-full condition (99% → 52%) that was preventing Prometheus WAL wr
 **Space recovered:** ~41 GB from ClickHouse system log truncation, ~300 MB from log/screenshot cleanup
 
 **Steady-state after fix:** ~239 MB flow data + <2 GB system logs (7-day rolling) + ~1.7 GB Prometheus (30d) = well within limits
+
+---
+
+### 27. Wazuh Windows Agent Configuration — April 26, 2026
+
+Deployed full Windows SIEM coverage for win11-vm (192.168.1.253, agent 004) which previously had Prometheus metrics only (no security visibility).
+
+**Script:** `/opt/monitoring/deploy-wazuh-windows-agent.sh`
+
+**Agent group:** Created dedicated `windows` group in Wazuh; agent 004 assigned.
+
+**Windows Event Log collection:**
+- Security (logon/logoff, privilege use, account management — minus noisy 5156/5157)
+- System (service start/stop, driver load)
+- Application (crashes, installs)
+- Microsoft-Windows-PowerShell/Operational (script block logging)
+- Microsoft-Windows-Windows Defender/Operational (malware detections)
+- Microsoft-Windows-TaskScheduler/Operational (scheduled task persistence)
+
+**File Integrity Monitoring:**
+- `%PROGRAMDATA%\...\Startup` — autorun persistence (realtime)
+- `C:\Windows\System32\drivers` — rootkit/driver detection (realtime)
+- `C:\Windows\System32\wbem` — fileless malware persistence (realtime)
+- `C:\Windows\System32\drivers\etc` — hosts file DNS hijack (realtime)
+- `C:\Program Files`, `C:\Program Files (x86)` — installation tracking
+
+**Registry FIM:**
+- `HKLM\...\CurrentVersion\Run` / `RunOnce` (both arches) — autorun persistence
+- `HKCU\...\CurrentVersion\Run` / `RunOnce` — user-level persistence
+- `HKLM\System\CurrentControlSet\Services` — service/driver installs
+- `HKLM\...\Winlogon` — credential theft / logon script injection
+- `HKLM\Software\Google\Chrome\Extensions` — browser extension supply chain
+
+**Custom rules (100800–100815):**
+- 100800/100801: Failed logon + brute-force escalation (5 failures / 2 min)
+- 100802: Explicit credentials / pass-the-hash (EventID 4648)
+- 100803: Privileged logon audit (EventID 4672)
+- 100804: Scheduled task created/modified — persistence (EventID 4698/4702)
+- 100805/100806: PowerShell execution + obfuscated/encoded command detection
+- 100807/100808: Defender malware detected / Defender disabled (level 14)
+- 100809–100812: FIM — Registry Run key, Services key, hosts file, System32/drivers
+- 100813/100814: New local account / user added to Administrators
+- 100815: Security audit log cleared — level 14 (active attack indicator)
+
+---
+
+### 28. ClickHouse CPU Reduction — May 12, 2026
+
+Diagnosed and resolved sustained 190% CPU usage on `clickhouse-server` (PID accumulated 45,758 CPU-minutes since April 25). Root cause was three compounding issues in `/opt/akvorado/docker/clickhouse/server.xml`.
+
+**Root causes identified:**
+- `text_log` had grown to 3.49 GiB / 6.1M rows (ClickHouse logs ~1 internal message/second). Three of five active background merges were working against it simultaneously, enforcing TTL expiry.
+- `metric_log` had 17 days of data (vs 7-day TTL), generating a 28-part merge storm while expiring April data.
+- `background_pool_size = 16` on a 4-core host (`auto(4)`) — Docker image default created a 4:1 over-subscription of merge threads to CPUs.
+
+**Changes made to `server.xml`:**
+- `background_pool_size` reduced from 16 → 4 (matches CPU count; requires restart)
+- `text_log remove="1"` — disabled entirely; console JSON logging (observability.xml) is already configured at `information` level
+- `metric_log collect_interval_milliseconds` raised from 1,000 ms → 60,000 ms — reduces rows from 86K/day to 1.4K/day; Prometheus already scrapes ClickHouse metrics
+- Three `merge_tree` pool-entry thresholds overridden to `2` each (`number_of_free_entries_in_pool_to_execute_mutation`, `number_of_free_entries_in_pool_to_lower_max_size_of_merge`, `number_of_free_entries_in_pool_to_execute_optimize_entire_partition`) — required because ClickHouse startup sanity check rejects these defaults (20, 8, 25) when they exceed `pool_size × concurrency_ratio` (4×2=8)
+
+**Immediate relief applied:**
+- Truncated `system.text_log` (3.49 GiB freed) and `system.metric_log` (587 MiB freed) to stop the active merge storm without a restart
+- Reloaded config live (`SYSTEM RELOAD CONFIG`), then restarted container
+
+**Result:** ClickHouse CPU dropped from ~190% sustained → ~13% stabilizing. No active merges running on system tables after restart. All flow tables (`flows`, `flows_5m0s`, `flows_1m0s`, `flows_1h0m0s`) confirmed healthy with current data. All Prometheus targets, device enrichment, and monitoring workflows verified unaffected.

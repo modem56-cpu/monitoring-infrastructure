@@ -335,7 +335,21 @@ for path in sorted(_glob.glob(f"{DASH_DIR}/*.json")):
 report["grafana_dashboards"] = dashboards
 
 # === Output ===
-output = json.dumps(report, indent=2, default=str)
+import math
+
+class _CleanEncoder(json.JSONEncoder):
+    def iterencode(self, o, _one_shot=False):
+        return super().iterencode(self._clean(o), _one_shot)
+    def _clean(self, o):
+        if isinstance(o, float):
+            return None if (math.isnan(o) or math.isinf(o)) else o
+        if isinstance(o, dict):
+            return {k: self._clean(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [self._clean(v) for v in o]
+        return o
+
+output = json.dumps(report, indent=2, cls=_CleanEncoder)
 
 if len(sys.argv) > 1:
     out = sys.argv[1]

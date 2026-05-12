@@ -288,7 +288,10 @@ Flow enrichment columns:
   DstNet*       — same for destination
 
 WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
-         Check /opt/akvorado/docker/clickhouse/server.xml if disk fills again.
+         text_log was disabled May 2026 — was generating ~900K rows/day (~1/sec).
+         metric_log interval raised from 1s → 60s — was 86K rows/day.
+         background_pool_size reduced from 16 → 4 to prevent 190% CPU from merge storms.
+         Check /opt/akvorado/docker/clickhouse/server.xml for current settings.
 ```
 
 ### Key Data Files (Flat Files as "Databases")
@@ -990,7 +993,9 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 /opt/akvorado/                            ← Akvorado stack
 ├── docker-compose.yml                    ← All Akvorado containers
 ├── config/akvorado.yaml                  ← Flow pipeline config
-└── docker/clickhouse/server.xml          ← ClickHouse memory limits
+└── docker/clickhouse/server.xml          ← ClickHouse tuning: memory limits, background_pool_size=4,
+                                             trace_log/text_log disabled, metric_log interval=60s,
+                                             merge_tree pool-entry thresholds overridden to 2
 
 /var/ossec/                               ← Wazuh (root-owned)
 ├── etc/decoders/                         ← Custom XML decoders
@@ -1036,7 +1041,8 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 | SA key in plaintext at /opt/monitoring/ | Credential exposure | Move to /keys/ (done via symlink); consider secrets manager |
 | No git commit in 3+ weeks | Config drift, no recovery point | `cd /opt/monitoring && git add -A && git commit -m "..."` OVERDUE |
 | Wazuh Indexer JVM heap set to 1g | May OOM under heavy load | -Xmx1g is the cap; monitor swap; RAM upgrade recommended |
-| ClickHouse disk growth | Was 3.8 GB/day via trace_log | Disabled April 2026; verify persists after restart |
+| ClickHouse disk growth | Was 3.8 GB/day via trace_log | trace_log + text_log disabled; metric_log slowed to 60s; verify persists after restart |
+| ClickHouse high CPU | background_pool_size=16 on 4-core host → 190% CPU | Reduced to 4 May 2026; merge_tree thresholds overridden to 2 |
 | No Grafana backup | All dashboard config in Docker volume | Export to /opt/monitoring/dashboards/ (done) + git commit |
 | Wazuh agent not on all endpoints as native | Security blind spots | Install agents on Unraid, VMs (carefully — see below) |
 | CRITICAL: Never install wazuh-agent on wazuh-server | Removes manager package | `apt-mark hold wazuh-agent` MUST be set |
@@ -1085,6 +1091,7 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 | Apr 13 2026 | Wazuh manager destroyed by agent install | Full manager recovery, apt-mark hold |
 | Apr 16 2026 | Wazuh Indexer OOM crash | JVM heap capped at 1g, dumps disabled |
 | Apr 2026 | ClickHouse disk overflow (3.8 GB/day) | trace_log disabled in server.xml |
+| May 2026 | ClickHouse 190% CPU (merge storm) | background_pool_size 16→4; text_log disabled; metric_log slowed 1s→60s; system tables truncated |
 | Apr 2026 | Grafana→Wazuh Indexer broken | Elasticsearch DS + iptables rule |
 | Apr 2026 | Admin accounts false CRITICAL alerts | Authorized admins list + index update |
 

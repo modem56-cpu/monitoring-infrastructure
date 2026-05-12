@@ -72,20 +72,21 @@ echo ""
 echo "=== Step 3: UDM firewall rules (100401-100405) ==="
 cat > "$OSSEC/etc/rules/udm_firewall.xml" << 'XML'
 <group name="udm,firewall,network,">
+  <!-- udm-firewall decoder matches syslog from UDM Pro (192.168.10.1) -->
   <rule id="100401" level="3">
-    <if_sid>100010</if_sid>
+    <decoded_as>udm-firewall</decoded_as>
     <match>DESCR="Allow</match>
     <description>UDM Allow: $(srcip) -> $(dstip)</description>
     <group>udm,firewall,allowed,</group>
   </rule>
   <rule id="100402" level="6">
-    <if_sid>100010</if_sid>
+    <decoded_as>udm-firewall</decoded_as>
     <match>DESCR="Drop</match>
     <description>UDM Blocked: $(srcip) -> $(dstip)</description>
     <group>udm,firewall,blocked,</group>
   </rule>
   <rule id="100403" level="5">
-    <if_sid>100010</if_sid>
+    <decoded_as>udm-firewall</decoded_as>
     <match>DESCR="Default</match>
     <description>UDM Default Policy: $(srcip) -> $(dstip)</description>
     <group>udm,firewall,default_policy,</group>
