@@ -107,7 +107,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -155,7 +155,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
           "instant": true,
@@ -168,7 +168,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -212,7 +212,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(ALERTS{alertstate=\"firing\",severity=\"critical\"}) or vector(0)",
           "instant": true,
@@ -225,7 +225,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -273,7 +273,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(ALERTS{alertstate=\"firing\",severity=\"warning\"}) or vector(0)",
           "instant": true,
@@ -286,7 +286,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -330,7 +330,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(up==0) or vector(0)",
           "instant": true,
@@ -343,7 +343,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -387,7 +387,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(ALERTS{alertstate=\"pending\"}) or vector(0)",
           "instant": true,
@@ -400,7 +400,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -440,7 +440,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "count(ALERTS) or vector(0)",
           "instant": true,
@@ -453,7 +453,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -588,7 +588,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "ALERTS{alertstate=\"firing\"}",
           "instant": true,
@@ -641,7 +641,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -730,7 +730,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "up",
           "instant": true,
@@ -1909,7 +1909,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2144,7 +2144,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2184,7 +2184,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_active_employees or vector(0)",
           "instant": true,
@@ -2197,7 +2197,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2237,7 +2237,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_gw_active_total or vector(0)",
           "instant": true,
@@ -2250,7 +2250,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2298,7 +2298,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_true_orphaned_accounts or vector(0)",
           "instant": true,
@@ -2312,7 +2312,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2356,7 +2356,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_missing_accounts or vector(0)",
           "instant": true,
@@ -2369,7 +2369,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2470,7 +2470,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_true_orphan_info",
           "instant": true,
@@ -2510,7 +2510,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "afiwke54zcjcwe"
       },
       "fieldConfig": {
         "defaults": {
@@ -2575,7 +2575,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_missing_info",
           "instant": true,
@@ -2648,7 +2648,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_approved_service_accounts_total or vector(0)",
           "instant": true,
@@ -2697,7 +2697,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_service_account_admin_total or vector(0)",
           "instant": true,
@@ -2811,7 +2811,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_service_account_info",
           "format": "table",
@@ -2919,7 +2919,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_service_account_admin_info",
           "format": "table",

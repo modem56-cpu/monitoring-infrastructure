@@ -101,7 +101,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_true_orphaned_accounts or vector(0)",
           "instant": true,
@@ -150,7 +150,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_unauthorized_admins_total or vector(0)",
           "instant": true,
@@ -199,7 +199,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_suspended_active_employees or vector(0)",
           "instant": true,
@@ -248,7 +248,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_missing_gw_accounts or vector(0)",
           "instant": true,
@@ -293,7 +293,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_active_employees or vector(0)",
           "instant": true,
@@ -338,7 +338,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_gw_active_total or vector(0)",
           "instant": true,
@@ -383,7 +383,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_approved_service_accounts_total or vector(0)",
           "instant": true,
@@ -432,7 +432,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_service_account_admin_total or vector(0)",
           "instant": true,
@@ -549,7 +549,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_true_orphaned_accounts",
           "legendFormat": "true_orphaned"
@@ -557,7 +557,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_unauthorized_admins_total",
           "legendFormat": "unauthorized_admin"
@@ -565,7 +565,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_approved_service_accounts_total",
           "legendFormat": "service_accounts"
@@ -573,7 +573,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_suspended_active_employees",
           "legendFormat": "suspended_active"
@@ -581,7 +581,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_missing_gw_accounts",
           "legendFormat": "missing_gw"
@@ -694,7 +694,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_true_orphan_info",
           "format": "table",
@@ -792,7 +792,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_missing_info",
           "format": "table",
@@ -954,7 +954,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "employee_reconcile_service_account_info",
           "format": "table",
@@ -1108,7 +1108,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "afiwke54zcjcwe"
           },
           "expr": "ALERTS{alertstate=\"firing\",alertname=~\"Employee.*|ServiceAccount.*\"}",
           "format": "table",
