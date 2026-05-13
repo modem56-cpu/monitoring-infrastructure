@@ -2946,12 +2946,363 @@
       ]
     },
     {
+      "id": 50,
+      "type": "row",
       "collapsed": false,
+      "title": "Google Workspace \u2014 Shared Drive Lifecycle",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 108
+      },
+      "panels": []
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Total Live Shared Drives",
+      "description": "Shared drives currently returned by the Drive API (excludes deleted).",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 109
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_shared_drives_total",
+          "instant": true,
+          "legendFormat": "Total"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Approved External Drives",
+      "description": "Shared drives with external members that are in the approved client list.",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 109
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_approved_external_shared_drives_total",
+          "instant": true,
+          "legendFormat": "Approved"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Unapproved External (Violations)",
+      "description": "Shared drives with external members NOT in the approved list \u2014 active violations.",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 109
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_unapproved_external_shared_drives_total",
+          "instant": true,
+          "legendFormat": "Unapproved"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "stat",
+      "title": "Deleted Drives Detected",
+      "description": "Shared drives that were previously seen but are no longer returned by the Drive API.",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 109
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_deleted_shared_drives_total or vector(0)",
+          "instant": true,
+          "legendFormat": "Deleted"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "table",
+      "title": "Deleted Shared Drives \u2014 Lifecycle Audit (exportable CSV)",
+      "description": "Shared drives that were detected as deleted (no longer returned by Drive API). Shows previous category (internal / approved_external / unapproved_external), whether they had external members, and when deletion was first detected.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 112
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "drive"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 240
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "drive_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "deleted_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "previous_category"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_deleted_shared_drive_info or vector(0)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "drive": "Drive Name",
+              "drive_id": "Drive ID",
+              "deleted_at": "Deleted At (detected)",
+              "previous_category": "Previous Category"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 121
       },
       "id": 31,
       "panels": [],
@@ -2964,7 +3315,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 109
+        "y": 122
       },
       "id": 32,
       "options": {

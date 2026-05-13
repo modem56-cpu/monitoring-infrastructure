@@ -271,6 +271,46 @@ for r in pq("topk(10, gworkspace_shared_drive_size_bytes)"):
     })
 gw["top_shared_drives"] = top_shared
 
+# Shared drive live summary from current Prometheus metrics
+gw["shared_drive_summary"] = {
+    "total_live":               int(scalar("gworkspace_shared_drives_total") or 0),
+    "approved_external_live":   int(scalar("gworkspace_approved_external_shared_drives_total") or 0),
+    "unapproved_external_live": int(scalar("gworkspace_unapproved_external_shared_drives_total") or 0),
+    "deleted_detected":         int(scalar("gworkspace_deleted_shared_drives_total") or 0),
+    "external_violations_live": int(scalar("gworkspace_unapproved_external_shared_drives_total") or 0),
+}
+
+# Deleted shared drives from state file (audit trail)
+_sd_state_path = "/opt/monitoring/data/shared_drive_state.json"
+deleted_drives_out = []
+try:
+    import os as _os
+    if _os.path.exists(_sd_state_path):
+        with open(_sd_state_path) as _sdp:
+            _sd_state = json.load(_sdp)
+        for _did, _di in _sd_state.get("drives", {}).items():
+            if _di.get("status") == "deleted":
+                if _di.get("had_external_members") and _di.get("was_approved"):
+                    _prev_cat = "approved_external"
+                elif _di.get("had_external_members"):
+                    _prev_cat = "unapproved_external"
+                else:
+                    _prev_cat = "internal"
+                deleted_drives_out.append({
+                    "drive_id":              _did,
+                    "drive_name":            _di.get("drive_name", ""),
+                    "previous_category":     _prev_cat,
+                    "had_external_members":  _di.get("had_external_members", False),
+                    "was_approved":          _di.get("was_approved", False),
+                    "removed_from_live_count": True,
+                    "first_seen":            _di.get("first_seen", ""),
+                    "last_seen":             _di.get("last_seen", ""),
+                    "detected_at":           _di.get("deleted_at", ""),
+                })
+except Exception as _e:
+    deleted_drives_out = [{"error": str(_e)}]
+gw["deleted_shared_drives"] = deleted_drives_out
+
 report["google_workspace"] = gw
 
 # === SSH Sessions ===
