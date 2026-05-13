@@ -422,6 +422,46 @@ except Exception as e:
     errors += 1
 
 # ============================================================
+# 3b-state. Shared Drive State Tracking (deletion detection)
+# Persists known drive IDs to detect drives that disappear from
+# the Drive API (= deleted or hidden). On each run, any drive in
+# the saved state that is NOT in all_drives is marked deleted.
+# State file: /opt/monitoring/data/shared_drive_state.json
+# ============================================================
+DRIVE_STATE_FILE = Path("/opt/monitoring/data/shared_drive_state.json")
+drive_state = {}   # {drive_id: {drive_name, first_seen, last_seen, status, ...}}
+live_drive_ids = {d["id"] for d in all_drives}
+
+try:
+    if DRIVE_STATE_FILE.exists():
+        with open(DRIVE_STATE_FILE) as _sf:
+            drive_state = json.load(_sf).get("drives", {})
+except Exception as _e:
+    print(f"WARNING: Drive state load: {_e}", file=sys.stderr)
+    drive_state = {}
+
+# Mark previously-active drives as deleted if no longer returned by API
+for _did, _dinfo in drive_state.items():
+    if _dinfo.get("status") == "active" and _did not in live_drive_ids:
+        drive_state[_did]["status"] = "deleted"
+        drive_state[_did]["deleted_at"] = ts
+
+# Upsert live drives into state
+for _drv in all_drives:
+    _did = _drv["id"]
+    if _did not in drive_state:
+        drive_state[_did] = {
+            "drive_name": _drv.get("name", _did),
+            "first_seen": ts, "last_seen": ts,
+            "status": "active", "deleted_at": None,
+            "had_external_members": False, "was_approved": False,
+        }
+    else:
+        drive_state[_did]["drive_name"] = _drv.get("name", _did)
+        drive_state[_did]["last_seen"] = ts
+        drive_state[_did]["status"] = "active"
+
+# ============================================================
 # 3c. Org-level Storage Totals
 # ============================================================
 try:
@@ -546,6 +586,11 @@ try:
         emit_prom("gworkspace_shared_drive_external_members", external_count,
                   {"drive": drive_name, "drive_id": drive_id, "status": status})
 
+        # Update state with external member classification for this drive
+        if drive_id in drive_state:
+            drive_state[drive_id]["had_external_members"] = external_count > 0
+            drive_state[drive_id]["was_approved"] = is_approved
+
         if is_approved:
             approved_with_external += 1
         else:
@@ -567,6 +612,38 @@ try:
 except Exception as e:
     print(f"WARNING: Shared drive external audit: {e}", file=sys.stderr)
     errors += 1
+
+# ============================================================
+# 3e. Persist drive state + emit deleted drive metrics
+# ============================================================
+try:
+    _deleted = [(did, di) for did, di in drive_state.items() if di.get("status") == "deleted"]
+
+    prom_lines.append("# HELP gworkspace_deleted_shared_drives_total Shared drives no longer returned by Drive API (deleted or removed)")
+    prom_lines.append("# TYPE gworkspace_deleted_shared_drives_total gauge")
+    emit_prom("gworkspace_deleted_shared_drives_total", len(_deleted))
+
+    prom_lines.append("# HELP gworkspace_deleted_shared_drive_info Info label metric for each deleted shared drive (value=1)")
+    prom_lines.append("# TYPE gworkspace_deleted_shared_drive_info gauge")
+    for _did, _di in _deleted:
+        if _di.get("had_external_members") and _di.get("was_approved"):
+            _prev_cat = "approved_external"
+        elif _di.get("had_external_members"):
+            _prev_cat = "unapproved_external"
+        else:
+            _prev_cat = "internal"
+        emit_prom("gworkspace_deleted_shared_drive_info", 1, {
+            "drive":             _di.get("drive_name", _did)[:100],
+            "drive_id":          _did,
+            "deleted_at":        _di.get("deleted_at", ""),
+            "previous_category": _prev_cat,
+        })
+
+    DRIVE_STATE_FILE.write_text(json.dumps({"last_updated": ts, "drives": drive_state}, indent=2))
+    print(f"  Drive state: {len(live_drive_ids)} live, {len(_deleted)} deleted (state saved)")
+
+except Exception as _e:
+    print(f"WARNING: Drive state save: {_e}", file=sys.stderr)
 
 # ============================================================
 # 4. Security Alerts (Alert Center)
