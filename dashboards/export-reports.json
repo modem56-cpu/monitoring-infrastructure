@@ -5,12 +5,6 @@
       "label": "Prometheus",
       "type": "datasource",
       "pluginId": "prometheus"
-    },
-    {
-      "name": "DS_WAZUH_INDEXER",
-      "label": "Wazuh Indexer",
-      "type": "datasource",
-      "pluginId": "elasticsearch"
     }
   ],
   "__requires": [
@@ -790,7 +784,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -920,7 +914,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1022,7 +1016,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1133,7 +1127,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1294,7 +1288,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1396,7 +1390,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1511,7 +1505,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1613,7 +1607,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1727,7 +1721,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1785,7 +1779,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1847,7 +1841,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {
@@ -1962,7 +1956,7 @@
     {
       "datasource": {
         "type": "elasticsearch",
-        "uid": "${DS_WAZUH_INDEXER}"
+        "uid": "ffk7yn7hg1k3ka"
       },
       "fieldConfig": {
         "defaults": {

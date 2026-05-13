@@ -414,33 +414,68 @@ try:
         aid = s.get("id", "")
         if aid and aid not in mon_by_id:
             mon_by_id[aid] = s
-    # Base list from alert-derived agents (always current); enrich with monitoring fields
+    # Enrich agent list with IPs from the alerts index (more reliable than monitoring docs)
+    ip_lookup_body = json.dumps({
+        "size": 0,
+        "query": {"range": {"@timestamp": {"gte": "now-24h"}}},
+        "aggs": {
+            "agents": {
+                "terms": {"field": "agent.name", "size": 50},
+                "aggs": {
+                    "agent_id": {"terms": {"field": "agent.id", "size": 1}},
+                    "agent_ip": {"terms": {"field": "agent.ip", "size": 1}},
+                    "last_seen": {"max": {"field": "@timestamp"}}
+                }
+            }
+        }
+    }).encode()
+    req_ip = urllib.request.Request(
+        "https://172.18.0.1:9200/wazuh-alerts-4.x-*/_search",
+        data=ip_lookup_body,
+        headers={"Authorization": wazuh_auth, "Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req_ip, context=ctx, timeout=10) as r:
+        ip_data = json.loads(r.read().decode())
+    alerts_agents = {}
+    for b in ip_data.get("aggregations", {}).get("agents", {}).get("buckets", []):
+        aid_buckets = b.get("agent_id", {}).get("buckets", [])
+        ip_buckets  = b.get("agent_ip", {}).get("buckets", [])
+        if aid_buckets:
+            alerts_agents[aid_buckets[0]["key"]] = {
+                "name":      b["key"],
+                "ip":        ip_buckets[0]["key"] if ip_buckets else "",
+                "status":    "active",
+                "last_seen": b.get("last_seen", {}).get("value_as_string", ""),
+            }
+    # Base list from alert-derived agents; enrich with monitoring fields + alert IPs
     base_agents = report.get("wazuh_agents", [])
     agent_summary = []
     for ag in base_agents:
         aid = ag.get("id", "")
         m = mon_by_id.get(aid, {})
+        a = alerts_agents.get(aid, {})
         agent_summary.append({
             "agent_id":          aid,
             "agent_name":        ag.get("name", m.get("name", "")),
-            "ip":                m.get("ip", ag.get("ip", "")),
-            "status":            ag.get("status", m.get("status", "")),
+            "ip":                a.get("ip") or m.get("ip", ""),
+            "status":            a.get("status") or ag.get("status", ""),
             "registration_date": m.get("dateAdd", ""),
-            "last_keep_alive":   ag.get("last_seen", m.get("timestamp", "")),
+            "last_keep_alive":   a.get("last_seen") or ag.get("last_seen", ""),
             "node_name":         m.get("node_name", ""),
             "group":             m.get("group_config_status", ""),
         })
-    # Include any monitoring-only agents not found in alerts
+    # Include any monitoring-only or alerts-only agents not in wazuh_agents list
     alert_ids = {ag.get("id") for ag in base_agents}
     for aid, s in mon_by_id.items():
         if aid not in alert_ids:
+            a = alerts_agents.get(aid, {})
             agent_summary.append({
                 "agent_id":          aid,
                 "agent_name":        s.get("name", ""),
-                "ip":                s.get("ip", ""),
-                "status":            s.get("status", ""),
+                "ip":                a.get("ip") or s.get("ip", ""),
+                "status":            a.get("status") or s.get("status", ""),
                 "registration_date": s.get("dateAdd", ""),
-                "last_keep_alive":   s.get("timestamp", ""),
+                "last_keep_alive":   a.get("last_seen") or s.get("timestamp", ""),
                 "node_name":         s.get("node_name", ""),
                 "group":             s.get("group_config_status", ""),
             })
@@ -507,6 +542,7 @@ except Exception as e:
 try:
     mi = _wazuh_query({
         "size": 0,
+        "track_total_hits": True,
         "query": {"bool": {"must": [_W24, {"exists": {"field": "rule.mitre.tactic"}}]}},
         "aggs": {
             "total":          {"value_count": {"field": "rule.id"}},
@@ -677,12 +713,15 @@ except Exception as e:
 # SCA summary data is from wazuh-monitoring-* agent docs (agent.lastSCA fields)
 # or from SCA alert events in the alerts index.
 try:
+    # Use 60d window to catch agents that scan infrequently; filter on summary events only
+    # (type=summary are policy-level results; other types are per-check events)
     sca_d = _wazuh_query({
-        "size": 20,
+        "size": 50,
         "sort": [{"@timestamp": {"order": "desc"}}],
         "query": {"bool": {"must": [
-            {"range": {"@timestamp": {"gte": "now-7d"}}},
-            {"terms": {"rule.groups": ["sca"]}}
+            {"range": {"@timestamp": {"gte": "now-60d"}}},
+            {"terms": {"rule.groups": ["sca"]}},
+            {"term":  {"data.sca.type": "summary"}}
         ]}},
         "_source": ["@timestamp", "agent.id", "agent.name",
                     "data.sca.policy", "data.sca.passed", "data.sca.failed",
@@ -698,8 +737,8 @@ try:
         ag = s.get("agent", {})
         sca = s.get("data", {}).get("sca", {})
         aid = ag.get("id", "")
-        policy_id = sca.get("policy_id", "")
-        key = f"{aid}:{policy_id}"
+        policy_id = sca.get("policy_id", "") or sca.get("policy", "")
+        key = f"{ag.get('name', aid)}:{policy_id}"
         if key in seen_agents:
             continue
         seen_agents.add(key)
@@ -715,11 +754,11 @@ try:
             "timestamp":       s.get("@timestamp", ""),
             "passed":          passed,
             "failed":          failed,
-            "not_applicable":  sca.get("invalid", 0),
+            "not_applicable":  int(sca.get("invalid") or 0),
             "score_percent":   score,
         })
     report["wazuh_sca"] = sca_summary if sca_summary else {
-        "note": "No SCA events in last 7 days — SCA may require Wazuh Manager API (port 55000 not exposed)",
+        "note": "No SCA summary events in last 60 days — agents may not have SCA policies configured",
         "total_policies": 0
     }
 except Exception as e:
