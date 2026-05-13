@@ -27,21 +27,25 @@ groups:
       summary: "Unrestricted external sharers increased — now {{ $value }} (up from 1h ago)"
       description: "A user was moved out of DEFAULT-BLOCKED OU or a new account was created without OU assignment."
 
-  - alert: GWorkspace_ExtShare_ExceptionOU_Unauthorized
-    expr: gworkspace_extshare_exception_unauthorized > 0
-    for: 2m
+  # NOTE: gworkspace_extshare_exception_unauthorized/authorized were replaced
+  # by gworkspace_extshare_exception_users (all exception OU users, undivided).
+  # The split metrics were never emitted by the collector. Using the combined count.
+  - alert: GWorkspace_ExtShare_ExceptionOU_Large
+    expr: gworkspace_extshare_exception_users > 10
+    for: 30m
     labels:
-      severity: critical
+      severity: warning
     annotations:
-      summary: "{{ $value }} UNAUTHORIZED user(s) in SHARED-DRIVES-EXTERNAL OU — delegate allowlist violation"
+      summary: "{{ $value }} user(s) in SHARED-DRIVES-EXTERNAL OU — unusually high, verify all are authorized"
 
-  - alert: GWorkspace_ExtShare_ExceptionOU_Authorized
-    expr: gworkspace_extshare_exception_authorized > 0
-    for: 4h
+  - alert: GWorkspace_UnapprovedSharedDriveExternalAccess
+    expr: gworkspace_unapproved_external_shared_drives_total > 0
+    for: 10m
     labels:
-      severity: info
+      severity: warning
     annotations:
-      summary: "{{ $value }} authorized delegate(s) in SHARED-DRIVES-EXTERNAL OU for over 4h — should be temporary"
+      summary: "{{ $value }} shared drive(s) have external members but are NOT in the approved client drive list"
+      description: "Check gworkspace_shared_drive_external_members{status='unapproved'} for affected drives. Add to /opt/monitoring/approved_external_shared_drives.json if intentional."
 
   - alert: GWorkspace_CollectorDown
     expr: gworkspace_collector_up == 0

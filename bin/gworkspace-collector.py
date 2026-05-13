@@ -353,6 +353,13 @@ except Exception as e:
 # 3b. Shared Drives — enumerate, file count, sampled size
 # ============================================================
 org_shared_bytes = 0
+drive_svc = None
+all_drives = []
+
+APPROVED_DRIVES_FILE = Path(os.environ.get(
+    "APPROVED_DRIVES_FILE",
+    "/opt/monitoring/approved_external_shared_drives.json"
+))
 
 try:
     drive_svc = build("drive", "v3", credentials=creds, cache_discovery=False)
@@ -461,6 +468,104 @@ try:
 
 except Exception as e:
     print(f"WARNING: Org storage totals: {e}", file=sys.stderr)
+    errors += 1
+
+# ============================================================
+# 3d. Shared Drive External Member Audit
+# Classifies each shared drive as approved (in exemption config) or
+# unapproved. External members = users/domains not in yokly.gives
+# or agapay.gives. Uses drive_id (stable) as the exemption key.
+# ============================================================
+INTERNAL_DOMAINS = {"yokly.gives", "agapay.gives"}
+
+try:
+    if drive_svc is None or not all_drives:
+        raise RuntimeError("drive_svc not available (section 3b failed)")
+
+    # Load approved drive IDs from config file
+    approved_drive_ids = {}
+    if APPROVED_DRIVES_FILE.exists():
+        with open(APPROVED_DRIVES_FILE) as _f:
+            for entry in json.load(_f):
+                did = entry.get("drive_id")
+                if did:
+                    approved_drive_ids[did] = entry
+
+    approved_with_external = 0
+    unapproved_with_external = 0
+
+    prom_lines.append("# HELP gworkspace_shared_drive_external_members External member count per shared drive (approved/unapproved)")
+    prom_lines.append("# TYPE gworkspace_shared_drive_external_members gauge")
+    prom_lines.append("# HELP gworkspace_approved_external_shared_drives_total Shared drives with external members that are in the approved list")
+    prom_lines.append("# TYPE gworkspace_approved_external_shared_drives_total gauge")
+    prom_lines.append("# HELP gworkspace_unapproved_external_shared_drives_total Shared drives with external members NOT in the approved list")
+    prom_lines.append("# TYPE gworkspace_unapproved_external_shared_drives_total gauge")
+
+    for drv in all_drives:
+        drive_id = drv.get("id")
+        drive_name = drv.get("name", drive_id)
+        external_count = 0
+        external_domains = set()
+        perm_pt = None
+
+        try:
+            while True:
+                perms_resp = drive_svc.permissions().list(
+                    fileId=drive_id,
+                    supportsAllDrives=True,
+                    useDomainAdminAccess=True,
+                    fields="nextPageToken,permissions(id,emailAddress,type,domain,role)",
+                    pageSize=100,
+                    pageToken=perm_pt
+                ).execute()
+                for perm in perms_resp.get("permissions", []):
+                    ptype = perm.get("type")
+                    email = (perm.get("emailAddress") or "").lower()
+                    domain = perm.get("domain") or ""
+                    if ptype == "user" and "@" in email:
+                        d = email.split("@")[1]
+                        if d not in INTERNAL_DOMAINS:
+                            external_count += 1
+                            external_domains.add(d)
+                    elif ptype == "domain" and domain and domain not in INTERNAL_DOMAINS:
+                        external_count += 1
+                        external_domains.add(domain)
+                perm_pt = perms_resp.get("nextPageToken")
+                if not perm_pt:
+                    break
+        except HttpError:
+            pass  # skip drives we cannot enumerate
+
+        if external_count == 0:
+            continue
+
+        is_approved = drive_id in approved_drive_ids
+        status = "approved" if is_approved else "unapproved"
+        domains_str = "|".join(sorted(external_domains))[:200]
+
+        emit_prom("gworkspace_shared_drive_external_members", external_count,
+                  {"drive": drive_name, "drive_id": drive_id, "status": status})
+
+        if is_approved:
+            approved_with_external += 1
+        else:
+            unapproved_with_external += 1
+            emit_wazuh(
+                "GWorkspaceUnapprovedSharedDriveAccess", "warning",
+                f"Shared drive '{drive_name}' has {external_count} external member(s) — not in approved list",
+                drive=drive_name,
+                drive_id=drive_id,
+                external_count=str(external_count),
+                external_domains=domains_str,
+            )
+
+    emit_prom("gworkspace_approved_external_shared_drives_total", approved_with_external)
+    emit_prom("gworkspace_unapproved_external_shared_drives_total", unapproved_with_external)
+
+    print(f"  Shared drive external audit: approved={approved_with_external} unapproved={unapproved_with_external}")
+
+except Exception as e:
+    print(f"WARNING: Shared drive external audit: {e}", file=sys.stderr)
     errors += 1
 
 # ============================================================
