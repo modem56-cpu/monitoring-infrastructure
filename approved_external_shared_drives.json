@@ -16,5 +16,104 @@
     "approved_date": "2026-01-01",
     "reason": "Active client — external collaborators are client staff with legitimate access",
     "expected_domains": []
+  },
+  {
+    "drive_id": "0ABwZe7TCKjIIUk9PVA",
+    "drive_name": "4. Cadenza",
+    "client": "Cadenza",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AFF5gMQn2E5_Uk9PVA",
+    "drive_name": "Joseph Brenan",
+    "client": "Joseph Brenan",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AF81V9P8lmnfUk9PVA",
+    "drive_name": "OmniCollision",
+    "client": "OmniCollision",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AMpeENr82RWRUk9PVA",
+    "drive_name": "Phil Chap, SKYRUN VR",
+    "client": "Phil Chap / SKYRUN VR",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AIrzzu0_DF7EUk9PVA",
+    "drive_name": "Ryan & Theresa Sunden",
+    "client": "Ryan & Theresa Sunden",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AD__QOs-0in4Uk9PVA",
+    "drive_name": "Flyline",
+    "client": "Flyline",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0ALH33MZ-Xr6tUk9PVA",
+    "drive_name": "Franchise Creator",
+    "client": "Franchise Creator",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AG_vR08aGQszUk9PVA",
+    "drive_name": "Maganda",
+    "client": "Maganda",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AGj_JGH-SdhVUk9PVA",
+    "drive_name": "Mandy Pratt (Epilog Laser)",
+    "client": "Mandy Pratt / Epilog Laser",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0APe2C66yntb0Uk9PVA",
+    "drive_name": "RZM",
+    "client": "RZM",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AFPmDDAIlMzcUk9PVA",
+    "drive_name": "Right Sign",
+    "client": "Right Sign",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-05-12",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
   }
 ]
