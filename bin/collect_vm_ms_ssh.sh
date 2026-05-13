@@ -9,13 +9,14 @@ KNOWN="/opt/monitoring/sshkeys/known_hosts"
 OUTDIR="/opt/monitoring/textfile_collector"
 OUT="$OUTDIR/vps_movement_strategy.prom"
 TMP="$(mktemp "$OUTDIR/.vps_movement_strategy.prom.tmp.XXXXXX")"
+trap "rm -f \"$TMP\"" EXIT
 
 mkdir -p "$OUTDIR"
 touch "$KNOWN"
 chmod 0644 "$KNOWN" || true
 
 # ensure host key exists (safe to re-run)
-timeout 15 ssh-keyscan -H "$HOST" >> "$KNOWN" 2>/dev/null || true
+timeout 15 ssh-keyscan -H "$HOST" > "$KNOWN" 2>/dev/null || true
 
 # forced command prints Prom exposition to stdout
 timeout 30 ssh -T -i "$KEY" \

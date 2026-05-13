@@ -1,47 +1,59 @@
 #!/usr/bin/env bash
-# deploy-prom-wazuh-final.sh
-# 1. Deploys updated prom-to-wazuh.sh (severity fix + new checks)
-# 2. Replaces decoder with log_format:json-compatible approach (decoded_as:json)
-# 3. Restarts wazuh-manager
-# 4. Runs logtest to verify decoder fires on a sample bridge event
+# deploy-gworkspace-extshare.sh
+# Deploys GWorkspace shared drive external member audit changes:
+#   1. Installs updated gworkspace-collector.py (adds section 3d)
+#   2. Installs approved_external_shared_drives.json to /opt/monitoring/data/
+#   3. Installs updated gworkspace.rules.yml (fixes broken exception metrics,
+#      adds GWorkspace_UnapprovedSharedDriveExternalAccess alert)
+#   4. Deploys updated prom-to-wazuh.sh (section 17 for unapproved drives)
+#   5. Updates Wazuh rules (adds rule 100117)
+#   6. Reloads Prometheus config
+#   7. Restarts wazuh-manager
 # Run as root
 set -euo pipefail
 
+REPO="/opt/monitoring"
 OSSEC="/var/ossec"
 
-echo "=== Step 1: Deploy updated prom-to-wazuh.sh ==="
-cp /opt/monitoring/prom-to-wazuh.sh /usr/local/bin/prom-to-wazuh.sh
+echo "=== Step 1: Install updated gworkspace-collector.py ==="
+cp "$REPO/gworkspace-collector.py" /opt/monitoring/bin/gworkspace-collector.py
+chmod 755 /opt/monitoring/bin/gworkspace-collector.py
+echo "  Installed /opt/monitoring/bin/gworkspace-collector.py"
+
+echo ""
+echo "=== Step 2: Install approved_external_shared_drives.json ==="
+cp "$REPO/approved_external_shared_drives.json" /opt/monitoring/data/approved_external_shared_drives.json
+chmod 644 /opt/monitoring/data/approved_external_shared_drives.json
+echo "  Installed /opt/monitoring/data/approved_external_shared_drives.json"
+echo "  Current approved drives:"
+python3 -c "
+import json
+with open('/opt/monitoring/data/approved_external_shared_drives.json') as f:
+    for d in json.load(f):
+        print(f'    {d[\"drive_id\"]}  {d[\"drive_name\"]} ({d[\"client\"]})')
+"
+
+echo ""
+echo "=== Step 3: Install updated gworkspace.rules.yml ==="
+cp "$REPO/gworkspace.rules.yml" /opt/monitoring/rules/gworkspace.rules.yml
+chmod 644 /opt/monitoring/rules/gworkspace.rules.yml
+echo "  Installed /opt/monitoring/rules/gworkspace.rules.yml"
+echo "  Reloading Prometheus config..."
+curl -sf -X POST http://127.0.0.1:9090/-/reload && echo "  Prometheus reloaded OK" || echo "  WARNING: Prometheus reload failed (check manually)"
+
+echo ""
+echo "=== Step 4: Deploy updated prom-to-wazuh.sh ==="
+cp "$REPO/prom-to-wazuh.sh" /usr/local/bin/prom-to-wazuh.sh
 chmod 755 /usr/local/bin/prom-to-wazuh.sh
-echo "  Deployed /usr/local/bin/prom-to-wazuh.sh"
+echo "  Installed /usr/local/bin/prom-to-wazuh.sh (section 17 added)"
 
 echo ""
-echo "=== Step 2: Replace prometheus decoder (use decoded_as:json approach) ==="
-# The log_format:json localfile setting makes Wazuh parse JSON automatically.
-# When log_format:json is active, the internal JSON decoder runs first and
-# sets decoded_as=json with all fields as data.*
-# Rules must therefore use <decoded_as>json</decoded_as>, not the custom decoder name.
-cat > "$OSSEC/etc/decoders/prometheus_monitoring.xml" << 'XML'
-<!--
-  prometheus_monitoring decoder
-  NOTE: /var/log/prometheus-wazuh.log is configured with log_format:json
-  in ossec.conf localfile. Wazuh's built-in JSON decoder handles all field
-  extraction automatically (fields become data.source, data.alertname, etc.).
-  This file exists for documentation only — the rules use <decoded_as>json</decoded_as>.
--->
-<decoder name="prometheus_monitoring_passthrough">
-  <prematch>{"timestamp":</prematch>
-</decoder>
-XML
-chown wazuh:wazuh "$OSSEC/etc/decoders/prometheus_monitoring.xml"
-echo "  Wrote decoder (passthrough — JSON handled by log_format:json)"
-
-echo ""
-echo "=== Step 3: Update rules to use decoded_as:json ==="
+echo "=== Step 5: Update Wazuh rules (add rule 100117) ==="
 cat > "$OSSEC/etc/rules/prometheus_monitoring.xml" << 'XML'
 <!--
-  Prometheus monitoring rules (100100-100116)
-  Bridge: /usr/local/bin/prom-to-wazuh.sh → /var/log/prometheus-wazuh.log
-  Localfile log_format:json → fields available as data.*
+  Prometheus monitoring rules (100100-100117)
+  Bridge: /usr/local/bin/prom-to-wazuh.sh -> /var/log/prometheus-wazuh.log
+  Localfile log_format:json -> fields available as data.*
 -->
 <group name="prometheus,monitoring,">
 
@@ -101,7 +113,7 @@ cat > "$OSSEC/etc/rules/prometheus_monitoring.xml" << 'XML'
     <group>prometheus,performance,</group>
   </rule>
 
-  <!-- SSHSession (info — expected activity) -->
+  <!-- SSHSession (info) -->
   <rule id="100107" level="3">
     <if_sid>100100</if_sid>
     <field name="alertname">^SSHSession$</field>
@@ -192,26 +204,24 @@ cat > "$OSSEC/etc/rules/prometheus_monitoring.xml" << 'XML'
 </group>
 XML
 chown wazuh:wazuh "$OSSEC/etc/rules/prometheus_monitoring.xml"
-echo "  Wrote rules 100100-100117 (using decoded_as:json)"
+echo "  Wrote rules 100100-100117"
 
 echo ""
-echo "=== Step 4: Restart Wazuh manager ==="
+echo "=== Step 6: Restart wazuh-manager ==="
 systemctl restart wazuh-manager
 sleep 3
 systemctl is-active --quiet wazuh-manager && echo "  wazuh-manager OK" || { echo "  ERROR: wazuh-manager failed"; exit 1; }
 
 echo ""
-echo "=== Step 5: Decoder test via wazuh-logtest ==="
-TEST_LINE='{"timestamp":"2026-05-13T03:00:00Z","source":"prometheus","alertname":"NetworkARPConflict","instance":"192.168.10.20:9100","alias":"wazuh-server","severity":"critical","value":"4","summary":"Network inventory: 4 ARP conflicts in last 24h"}'
-echo "Input: $TEST_LINE"
-echo ""
-echo "$TEST_LINE" | /var/ossec/bin/wazuh-logtest -U 2>&1 | grep -E "decoder|rule\.id|rule\.level|rule\.description|group|Phase" || \
-echo "$TEST_LINE" | timeout 5 /var/ossec/bin/ossec-logtest 2>&1 | head -30 || \
-echo "  (wazuh-logtest not available interactively — check alerts.json after next timer run)"
-
-echo ""
 echo "=== Done ==="
 echo ""
-echo "Verify in ~60s (after next timer run):"
-echo "  sudo grep -c '\"source\":\"prometheus\"' /var/ossec/logs/alerts/alerts.json"
-echo "  sudo grep '\"source\":\"prometheus\"' /var/ossec/logs/alerts/alerts.json | tail -3 | python3 -m json.tool | grep -E 'alertname|rule|level'"
+echo "Next steps:"
+echo "  1. Run collector manually to verify section 3d fires:"
+echo "     sudo -u root /opt/monitoring/bin/gworkspace-collector.py"
+echo "  2. Check new metrics exist:"
+echo "     curl -s 'http://127.0.0.1:9090/api/v1/query?query=gworkspace_unapproved_external_shared_drives_total'"
+echo "     curl -s 'http://127.0.0.1:9090/api/v1/query?query=gworkspace_shared_drive_external_members'"
+echo "  3. Add additional approved client drives to:"
+echo "     /opt/monitoring/data/approved_external_shared_drives.json"
+echo "     (use drive_id from Drive API, not drive name)"
+echo "  4. Grafana dashboard already updated — check Google Workspace > Shared Drive External Access Audit"

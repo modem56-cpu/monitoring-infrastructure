@@ -1,0 +1,20 @@
+[
+  {
+    "drive_id": "0AK1y4BrGe-TnUk9PVA",
+    "drive_name": "EmilyNaderFit",
+    "client": "Emily Nader Fitness",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-01-01",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  },
+  {
+    "drive_id": "0AEXuh7_bjFLfUk9PVA",
+    "drive_name": "Lin's Restaurant Group",
+    "client": "Lin's Restaurant Group",
+    "approved_by": "brian.monte@yokly.gives",
+    "approved_date": "2026-01-01",
+    "reason": "Active client — external collaborators are client staff with legitimate access",
+    "expected_domains": []
+  }
+]

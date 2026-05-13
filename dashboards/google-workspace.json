@@ -1024,8 +1024,9 @@
           "legendFormat": "Unrestricted"
         }
       ],
-      "title": "ExtShare Unrestricted",
-      "type": "stat"
+      "title": "ExtShare Unrestricted (User Policy)",
+      "type": "stat",
+      "description": "Active users whose account-level external sharing is NOT blocked by group policy. This counts user ACCOUNTS, not shared drive members. Value reflects ongoing OU migration \u2014 not an alert condition in itself. Alert fires only when this count INCREASES."
     },
     {
       "fieldConfig": {
@@ -1434,6 +1435,205 @@
       ],
       "title": "External Sharing Audit Over Time",
       "type": "timeseries"
+    },
+    {
+      "id": 53,
+      "title": "Shared Drive External Access Audit",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "panels": []
+    },
+    {
+      "id": 54,
+      "title": "Approved Client Drives w/ External Members",
+      "type": "stat",
+      "description": "Shared drives that have external (non-yokly/agapay) members AND are in the approved_external_shared_drives.json allowlist. These are expected \u2014 active client drives.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 73
+      },
+      "targets": [
+        {
+          "expr": "gworkspace_approved_external_shared_drives_total",
+          "legendFormat": "Approved"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 55,
+      "title": "Unapproved Drives w/ External Members",
+      "type": "stat",
+      "description": "Shared drives with external members that are NOT in the approved list. Value > 0 indicates unexpected external access. Add to approved_external_shared_drives.json if intentional.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 73
+      },
+      "targets": [
+        {
+          "expr": "gworkspace_unapproved_external_shared_drives_total",
+          "legendFormat": "Unapproved"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 56,
+      "title": "Shared Drive External Members \u2014 Approved vs Unapproved",
+      "type": "table",
+      "description": "External member count per shared drive. status=approved: drive is in the allowlist (client collaboration). status=unapproved: review needed.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 73
+      },
+      "targets": [
+        {
+          "expr": "gworkspace_shared_drive_external_members",
+          "legendFormat": "{{drive}} [{{status}}]",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "approved": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "approved"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "unapproved": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "unapproved"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "drive": "Drive Name",
+              "drive_id": "Drive ID",
+              "status": "Status",
+              "Value": "Ext. Members"
+            },
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ]
     }
   ],
   "refresh": "5m",

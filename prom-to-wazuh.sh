@@ -292,3 +292,16 @@ for r in data.get('data',{}).get('result',[]):
 " 2>/dev/null | while IFS='|' read -r target val; do
   emit "UnraidArrayFull" "$target" "unraid" "critical" "$val" "Unraid array at ${val}% capacity on ${target}"
 done
+
+# ============================================================
+# 17. GWorkspace — Unapproved Shared Drive with External Members
+# ============================================================
+query 'gworkspace_unapproved_external_shared_drives_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "GWorkspaceUnapprovedSharedDriveAccess" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "GWorkspace: ${val} shared drive(s) have external members but are not in the approved list"
+done

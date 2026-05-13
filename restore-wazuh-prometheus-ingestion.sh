@@ -178,10 +178,18 @@ cat > "$OSSEC/etc/rules/prometheus_monitoring.xml" << 'XML'
     <group>prometheus,storage,unraid,</group>
   </rule>
 
+  <!-- GWorkspace unapproved shared drive with external members — warning -->
+  <rule id="100117" level="7">
+    <if_sid>100100</if_sid>
+    <field name="alertname">^GWorkspaceUnapprovedSharedDriveAccess$</field>
+    <description>GWorkspace: unapproved shared drive(s) have external members — $(data.summary)</description>
+    <group>prometheus,google_workspace,shared_drive,</group>
+  </rule>
+
 </group>
 XML
 chown wazuh:wazuh "$OSSEC/etc/rules/prometheus_monitoring.xml"
-echo "  Wrote $OSSEC/etc/rules/prometheus_monitoring.xml (rules 100100-100116)"
+echo "  Wrote $OSSEC/etc/rules/prometheus_monitoring.xml (rules 100100-100117)"
 
 # 3. Logcollector entry in ossec.conf
 echo ""

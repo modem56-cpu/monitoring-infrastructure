@@ -7,9 +7,15 @@ Writes:
   /opt/monitoring/data/network_devices.json                (Akvorado + inventory)
   /opt/monitoring/data/network_inventory_state.json        (state: new device / MAC change detection)
   /var/log/network-inventory-wazuh.log                     (Wazuh JSON ingest)
+
+v2 changes:
+  - Add --set-baseline flag: marks all known devices as baseline and exits
+  - Add network_inventory_arp_conflicts_last_24h gauge (recent conflicts only)
+  - Auto-baseline: on first run (empty state), mark all discovered devices as baseline
+  - Alert rule NetworkARPConflict uses _last_24h to avoid false alarms from DHCP churn
 """
 
-import json, re, socket, subprocess, sys, time, datetime
+import argparse, json, re, socket, subprocess, sys, time, datetime
 from pathlib import Path
 from collections import Counter
 
@@ -140,13 +146,17 @@ def flush_wazuh():
 
 # ── state diffing ─────────────────────────────────────────────────────────────
 
-def diff_and_update(entries, state):
+def diff_and_update(entries, state, fresh_state=False):
     """
     MAC-centric state tracking — correct for DHCP environments.
 
     State structure:
-      by_mac: {mac → {ip, hostname, vendor, vlan, first_seen, last_seen}}
+      by_mac: {mac → {ip, hostname, vendor, vlan, source, first_seen, last_seen}}
       by_ip:  {ip  → mac}   ← secondary index for ARP conflict detection
+
+    source values:
+      "baseline"  — device was present when baseline was established
+      "discovered" — device appeared after baseline was set
 
     Events emitted:
       new_device              : new MAC never seen before (real new device)
@@ -202,6 +212,8 @@ def diff_and_update(entries, state):
         # ── New MAC — physically new device ─────────────────────────────────
         if mac not in by_mac:
             new_count += 1
+            # On first run (fresh state), treat all devices as baseline
+            source = "baseline" if fresh_state else "discovered"
             wazuh_emit(
                 "new_device", "info",
                 f"New device: {ip} MAC={mac} ({hostname or vendor}) VLAN={vlan}",
@@ -215,24 +227,27 @@ def diff_and_update(entries, state):
                     ip=ip, mac=mac, hostname=hostname, vendor=vendor,
                     vlan=vlan, vlan_id=e["vlan_id"],
                 )
+        else:
+            source = by_mac[mac].get("source", "discovered")
 
-        # ── Known MAC, IP changed — normal DHCP renewal ─────────────────────
-        elif by_mac[mac].get("ip") != ip:
-            ip_change_count += 1
-            old_ip = by_mac[mac].get("ip", "?")
-            wazuh_emit(
-                "dhcp_ip_changed", "info",
-                f"DHCP IP change: {mac} ({hostname or vendor}) {old_ip} → {ip} on {vlan}",
-                mac=mac, old_ip=old_ip, new_ip=ip,
-                hostname=hostname, vendor=vendor,
-                vlan=vlan, vlan_id=e["vlan_id"],
-            )
+            # ── Known MAC, IP changed — normal DHCP renewal ─────────────────
+            if by_mac[mac].get("ip") != ip:
+                ip_change_count += 1
+                old_ip = by_mac[mac].get("ip", "?")
+                wazuh_emit(
+                    "dhcp_ip_changed", "info",
+                    f"DHCP IP change: {mac} ({hostname or vendor}) {old_ip} → {ip} on {vlan}",
+                    mac=mac, old_ip=old_ip, new_ip=ip,
+                    hostname=hostname, vendor=vendor,
+                    vlan=vlan, vlan_id=e["vlan_id"],
+                )
 
         # ── Update state ─────────────────────────────────────────────────────
         first_seen = by_mac.get(mac, {}).get("first_seen", now_ts)
         by_mac[mac] = {
             "ip": ip, "hostname": hostname, "vendor": vendor,
-            "vlan": vlan, "first_seen": first_seen, "last_seen": now_ts,
+            "vlan": vlan, "source": source,
+            "first_seen": first_seen, "last_seen": now_ts,
         }
         by_ip[ip] = mac
 
@@ -261,7 +276,8 @@ def write_prom_inventory_state(state):
     Emits:
       network_inventory_baseline_total        — devices in baseline
       network_inventory_discovered_total      — post-baseline new devices
-      network_inventory_arp_conflicts_total   — ARP conflicts ever recorded
+      network_inventory_arp_conflicts_total   — ARP conflicts ever recorded (capped 200)
+      network_inventory_arp_conflicts_last_24h — ARP conflicts in last 24 hours (alert target)
       network_inventory_discovered_device{}   — per-device gauge for table panels
       network_inventory_arp_conflict_event{}  — per-conflict gauge with timestamp
     """
@@ -270,6 +286,19 @@ def write_prom_inventory_state(state):
     baseline_devices    = [e for e in by_mac.values() if e.get("source") == "baseline"]
     discovered_devices  = [e for e in by_mac.values() if e.get("source") != "baseline"]
     conflict_events     = state.get("arp_conflicts", [])
+
+    # Count conflicts in last 24 hours
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    cutoff_24h = now_utc - datetime.timedelta(hours=24)
+    recent_conflicts = []
+    for c in conflict_events:
+        try:
+            ts = datetime.datetime.strptime(c["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc)
+            if ts > cutoff_24h:
+                recent_conflicts.append(c)
+        except Exception:
+            pass
 
     lines = [
         "# HELP network_inventory_baseline_total Devices in the known-good baseline",
@@ -280,9 +309,13 @@ def write_prom_inventory_state(state):
         "# TYPE network_inventory_discovered_total gauge",
         f"network_inventory_discovered_total {len(discovered_devices)}",
         "",
-        "# HELP network_inventory_arp_conflicts_total ARP conflicts detected (possible spoofing)",
+        "# HELP network_inventory_arp_conflicts_total ARP conflicts detected (cumulative, capped 200)",
         "# TYPE network_inventory_arp_conflicts_total gauge",
         f"network_inventory_arp_conflicts_total {len(conflict_events)}",
+        "",
+        "# HELP network_inventory_arp_conflicts_last_24h ARP conflicts detected in last 24 hours",
+        "# TYPE network_inventory_arp_conflicts_last_24h gauge",
+        f"network_inventory_arp_conflicts_last_24h {len(recent_conflicts)}",
         "",
     ]
 
@@ -405,7 +438,32 @@ def write_inventory_stdout(entries, elapsed):
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+def cmd_set_baseline():
+    """Mark all devices currently in state as baseline and exit."""
+    state = load_state(STATE_FILE)
+    by_mac = state.get("by_mac", {})
+    if not by_mac:
+        print("ERROR: No devices in state file. Run collector first.", file=sys.stderr)
+        sys.exit(1)
+    for mac in by_mac:
+        by_mac[mac]["source"] = "baseline"
+    # Clear historical conflict log — conflicts before baseline are noise
+    state["arp_conflicts"] = []
+    save_state(STATE_FILE, state)
+    print(f"Baseline set: {len(by_mac)} devices marked as baseline, conflict log cleared.")
+
 def main():
+    parser = argparse.ArgumentParser(description="UDM Pro ARP Collector")
+    parser.add_argument(
+        "--set-baseline", action="store_true",
+        help="Mark all currently known devices as baseline (clears conflict log) and exit"
+    )
+    args = parser.parse_args()
+
+    if args.set_baseline:
+        cmd_set_baseline()
+        return
+
     t0      = time.time()
     oui     = load_oui(OUI_FILE)
     names   = load_names(NAMES_FILE)
@@ -426,8 +484,11 @@ def main():
 
     elapsed = time.time() - t0
 
+    # First run detection: if state has no by_mac entries, treat all as baseline
+    fresh_state = len(state.get("by_mac", {})) == 0
+
     # Diff against state → build Wazuh events
-    updated_state = diff_and_update(entries, state)
+    updated_state = diff_and_update(entries, state, fresh_state=fresh_state)
 
     # Write all outputs
     write_prom(entries, elapsed)             # network_device_info + per-VLAN counts

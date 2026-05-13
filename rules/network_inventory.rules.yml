@@ -3,8 +3,11 @@ groups:
     rules:
 
       # ── New device detected after baseline ───────────────────────────────
+      # Only fires when a real baseline exists (network_inventory_baseline_total > 0).
+      # Without a baseline, all devices appear as "discovered" — this guards against
+      # false alerts on fresh state or after a state file reset.
       - alert: NetworkNewDeviceDetected
-        expr: network_inventory_discovered_total > 0
+        expr: network_inventory_discovered_total > 0 and network_inventory_baseline_total > 0
         for: 0m
         labels:
           severity: warning
@@ -13,19 +16,22 @@ groups:
           description: >
             One or more devices with MACs not in the approved baseline have
             appeared on the network. Check Grafana Network Inventory dashboard
-            or Wazuh for details. Re-run baseline script once authorized.
+            or Wazuh for details. Re-run --set-baseline script once authorized.
 
       # ── ARP conflict (possible spoofing) ─────────────────────────────────
+      # Uses _last_24h metric (not cumulative total) to avoid firing on historical
+      # DHCP churn / MAC randomization events that accumulated before baseline was set.
       - alert: NetworkARPConflict
-        expr: network_inventory_arp_conflicts_total > 0
-        for: 0m
+        expr: network_inventory_arp_conflicts_last_24h > 0
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "{{ $value }} ARP conflict(s) detected"
+          summary: "{{ $value }} ARP conflict(s) in last 24h"
           description: >
-            An IP address is mapping to a different MAC than previously known.
+            An IP address mapped to a different MAC within the last 24 hours.
             This may indicate ARP spoofing, a device swap, or DHCP confusion.
+            Note: "unknown" vendor MACs are often mobile devices with MAC randomization.
             Check Grafana Network Inventory dashboard ARP Conflicts panel.
 
       # ── ARP collector not running ─────────────────────────────────────────

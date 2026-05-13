@@ -8,6 +8,8 @@ gam-project-*.json
 
 # Allow Grafana dashboard exports (dashboards/*.json are source-of-truth)
 !dashboards/*.json
+# Allow manually-maintained config files at repo root
+!approved_external_shared_drives.json
 
 # Runtime data
 logs/
