@@ -372,6 +372,395 @@ try:
 except Exception as e:
     report["wazuh_alerts_last_24h"] = f"Error: {e}"
 
+# ── Wazuh helper: run an Indexer aggregation query ─────────────────────────────
+def _wazuh_query(body_dict, index="wazuh-alerts-4.x-*", timeout=15):
+    """POST a search body to the Wazuh Indexer; return the parsed JSON or {}."""
+    try:
+        req = urllib.request.Request(
+            f"https://172.18.0.1:9200/{index}/_search",
+            data=json.dumps(body_dict).encode(),
+            headers={"Authorization": wazuh_auth, "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {"_error": str(e)}
+
+def _wazuh_count(body_dict, index="wazuh-alerts-4.x-*", timeout=10):
+    try:
+        req = urllib.request.Request(
+            f"https://172.18.0.1:9200/{index}/_count",
+            data=json.dumps(body_dict).encode(),
+            headers={"Authorization": wazuh_auth, "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+            return json.loads(r.read().decode()).get("count", 0)
+    except Exception:
+        return 0
+
+_W24 = {"range": {"@timestamp": {"gte": "now-24h"}}}
+
+# === Wazuh Agent Summary (enriched from wazuh-monitoring index) ===
+try:
+    # wazuh-monitoring-* stores flat docs (id, name, ip, status at root — not nested under agent.*)
+    mon = _wazuh_query({
+        "size": 100,
+        "_source": ["id", "name", "ip", "status", "dateAdd", "timestamp",
+                    "node_name", "group_config_status", "registerIP"]
+    }, index="wazuh-monitoring-*")
+    mon_by_id = {}
+    for hit in mon.get("hits", {}).get("hits", []):
+        s = hit["_source"]
+        aid = s.get("id", "")
+        if aid and aid not in mon_by_id:
+            mon_by_id[aid] = s
+    # Base list from alert-derived agents (always current); enrich with monitoring fields
+    base_agents = report.get("wazuh_agents", [])
+    agent_summary = []
+    for ag in base_agents:
+        aid = ag.get("id", "")
+        m = mon_by_id.get(aid, {})
+        agent_summary.append({
+            "agent_id":          aid,
+            "agent_name":        ag.get("name", m.get("name", "")),
+            "ip":                m.get("ip", ag.get("ip", "")),
+            "status":            ag.get("status", m.get("status", "")),
+            "registration_date": m.get("dateAdd", ""),
+            "last_keep_alive":   ag.get("last_seen", m.get("timestamp", "")),
+            "node_name":         m.get("node_name", ""),
+            "group":             m.get("group_config_status", ""),
+        })
+    # Include any monitoring-only agents not found in alerts
+    alert_ids = {ag.get("id") for ag in base_agents}
+    for aid, s in mon_by_id.items():
+        if aid not in alert_ids:
+            agent_summary.append({
+                "agent_id":          aid,
+                "agent_name":        s.get("name", ""),
+                "ip":                s.get("ip", ""),
+                "status":            s.get("status", ""),
+                "registration_date": s.get("dateAdd", ""),
+                "last_keep_alive":   s.get("timestamp", ""),
+                "node_name":         s.get("node_name", ""),
+                "group":             s.get("group_config_status", ""),
+            })
+    report["wazuh_agent_summary"] = sorted(agent_summary, key=lambda x: x.get("agent_id", ""))
+except Exception as e:
+    report["wazuh_agent_summary"] = {"error": str(e), "fallback": report.get("wazuh_agents", [])}
+
+# === Wazuh Threat Hunting — last 24h ===
+try:
+    th = _wazuh_query({
+        "size": 0,
+        "track_total_hits": True,
+        "query": _W24,
+        "aggs": {
+            "total":         {"value_count": {"field": "rule.id"}},
+            "level_12_plus": {"filter": {"range": {"rule.level": {"gte": 12}}}},
+            "auth_success":  {"filter": {"terms": {"rule.groups": [
+                "authentication_success", "pam", "sshd"
+            ]}}},
+            "auth_failure":  {"filter": {"terms": {"rule.groups": [
+                "authentication_failure", "authentication_failed", "win_authentication_failed"
+            ]}}},
+            "top_alerts":    {"terms": {"field": "rule.description", "size": 15,
+                                        "order": {"_count": "desc"}}},
+            "top_groups":    {"terms": {"field": "rule.groups", "size": 20,
+                                        "order": {"_count": "desc"}}},
+            "by_level":      {"terms": {"field": "rule.level", "size": 15,
+                                        "order": {"_key": "desc"}}},
+            "by_agent":      {"terms": {"field": "agent.name", "size": 20,
+                                        "order": {"_count": "desc"}}},
+        }
+    })
+    if "_error" in th:
+        raise Exception(th["_error"])
+    a = th.get("aggregations", {})
+    total_24h = th.get("hits", {}).get("total", {}).get("value", 0)
+    report["wazuh_threat_hunting"] = {
+        "window":               "24h",
+        "total_alerts":         total_24h,
+        "level_12_or_above":    a.get("level_12_plus", {}).get("doc_count", 0),
+        "authentication_success": a.get("auth_success", {}).get("doc_count", 0),
+        "authentication_failure": a.get("auth_failure", {}).get("doc_count", 0),
+        "top_alerts": [
+            {"description": b["key"], "count": b["doc_count"]}
+            for b in a.get("top_alerts", {}).get("buckets", [])
+        ],
+        "top_rule_groups": [
+            {"group": b["key"], "count": b["doc_count"]}
+            for b in a.get("top_groups", {}).get("buckets", [])
+        ],
+        "alerts_by_level": [
+            {"level": b["key"], "count": b["doc_count"]}
+            for b in a.get("by_level", {}).get("buckets", [])
+        ],
+        "alerts_by_agent": [
+            {"agent": b["key"], "count": b["doc_count"]}
+            for b in a.get("by_agent", {}).get("buckets", [])
+        ],
+    }
+except Exception as e:
+    report["wazuh_threat_hunting"] = {"error": str(e), "window": "24h"}
+
+# === Wazuh MITRE ATT&CK — last 24h ===
+try:
+    mi = _wazuh_query({
+        "size": 0,
+        "query": {"bool": {"must": [_W24, {"exists": {"field": "rule.mitre.tactic"}}]}},
+        "aggs": {
+            "total":          {"value_count": {"field": "rule.id"}},
+            "top_tactics":    {"terms": {"field": "rule.mitre.tactic",     "size": 20}},
+            "top_techniques": {"terms": {"field": "rule.mitre.technique",  "size": 20}},
+            "top_ids":        {"terms": {"field": "rule.mitre.id",         "size": 20}},
+            "by_agent":       {"terms": {"field": "agent.name",            "size": 20}},
+            "tactic_x_level": {
+                "terms": {"field": "rule.mitre.tactic", "size": 10},
+                "aggs": {"avg_level": {"avg": {"field": "rule.level"}}}
+            },
+        }
+    })
+    if "_error" in mi:
+        raise Exception(mi["_error"])
+    a = mi.get("aggregations", {})
+    report["wazuh_mitre_attack"] = {
+        "window":       "24h",
+        "total_alerts_with_mitre": mi.get("hits", {}).get("total", {}).get("value", 0),
+        "top_tactics": [
+            {"tactic": b["key"], "count": b["doc_count"]}
+            for b in a.get("top_tactics", {}).get("buckets", [])
+        ],
+        "top_techniques": [
+            {"technique": b["key"], "count": b["doc_count"]}
+            for b in a.get("top_techniques", {}).get("buckets", [])
+        ],
+        "top_mitre_ids": [
+            {"id": b["key"], "count": b["doc_count"]}
+            for b in a.get("top_ids", {}).get("buckets", [])
+        ],
+        "rule_level_by_tactic": [
+            {"tactic": b["key"], "count": b["doc_count"],
+             "avg_rule_level": round(b.get("avg_level", {}).get("value") or 0, 1)}
+            for b in a.get("tactic_x_level", {}).get("buckets", [])
+        ],
+        "alerts_by_agent": [
+            {"agent": b["key"], "count": b["doc_count"]}
+            for b in a.get("by_agent", {}).get("buckets", [])
+        ],
+    }
+except Exception as e:
+    report["wazuh_mitre_attack"] = {"error": str(e), "window": "24h"}
+
+# === Wazuh File Integrity Monitoring — last 24h ===
+try:
+    fim_q = {
+        "size": 0,
+        "query": {"bool": {"must": [
+            _W24,
+            {"terms": {"rule.groups": ["syscheck", "fim",
+                                       "syscheck_entry_modified",
+                                       "syscheck_entry_added",
+                                       "syscheck_entry_deleted"]}}
+        ]}},
+        "aggs": {
+            "by_action":  {"terms": {"field": "syscheck.event",  "size": 10}},
+            "top_paths":  {"terms": {"field": "syscheck.path",   "size": 20,
+                                     "order": {"_count": "desc"}}},
+            "by_agent":   {"terms": {"field": "agent.name",      "size": 20}},
+            "by_rule":    {"terms": {"field": "rule.description", "size": 10}},
+        }
+    }
+    fim_data = _wazuh_query(fim_q)
+    fim_recent = _wazuh_query({
+        "size": 20,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "query": {"bool": {"must": [
+            _W24,
+            {"terms": {"rule.groups": ["syscheck", "fim",
+                                       "syscheck_entry_modified",
+                                       "syscheck_entry_added",
+                                       "syscheck_entry_deleted"]}}
+        ]}},
+        "_source": ["@timestamp", "agent.id", "agent.name",
+                    "syscheck.path", "syscheck.event",
+                    "rule.id", "rule.level", "rule.description"]
+    })
+    if "_error" in fim_data:
+        raise Exception(fim_data["_error"])
+    fa = fim_data.get("aggregations", {})
+    actions = {b["key"]: b["doc_count"]
+               for b in fa.get("by_action", {}).get("buckets", [])}
+    recent_events = []
+    for h in fim_recent.get("hits", {}).get("hits", []):
+        s = h["_source"]
+        sc = s.get("syscheck", {})
+        ag = s.get("agent", {})
+        ru = s.get("rule", {})
+        recent_events.append({
+            "timestamp":       s.get("@timestamp", ""),
+            "agent_id":        ag.get("id", ""),
+            "agent_name":      ag.get("name", ""),
+            "path":            sc.get("path", ""),
+            "action":          sc.get("event", ""),
+            "rule_id":         ru.get("id", ""),
+            "rule_level":      ru.get("level", 0),
+            "rule_description": ru.get("description", ""),
+        })
+    report["wazuh_fim"] = {
+        "window":       "24h",
+        "total_events": fim_data.get("hits", {}).get("total", {}).get("value", 0),
+        "actions": {
+            "added":    actions.get("added",    0),
+            "modified": actions.get("modified", 0),
+            "deleted":  actions.get("deleted",  0),
+        },
+        "top_paths": [
+            {"path": b["key"], "count": b["doc_count"]}
+            for b in fa.get("top_paths", {}).get("buckets", [])
+        ],
+        "by_agent": [
+            {"agent": b["key"], "count": b["doc_count"]}
+            for b in fa.get("by_agent", {}).get("buckets", [])
+        ],
+        "recent_events": recent_events,
+    }
+except Exception as e:
+    report["wazuh_fim"] = {"error": str(e), "window": "24h",
+                            "total_events": 0, "actions": {"added": 0, "modified": 0, "deleted": 0}}
+
+# === Wazuh Vulnerability Detection ===
+# wazuh-states-vulnerabilities-* is present but has 0 docs (scanning not yet active)
+try:
+    vuln_total = _wazuh_count({"query": {"match_all": {}}},
+                               index="wazuh-states-vulnerabilities-*")
+    if vuln_total and vuln_total > 0:
+        vd = _wazuh_query({
+            "size": 0,
+            "aggs": {
+                "by_severity": {"terms": {"field": "vulnerability.severity", "size": 10}},
+                "by_package":  {"terms": {"field": "vulnerability.package.name", "size": 20,
+                                          "order": {"_count": "desc"}}},
+                "by_agent":    {"terms": {"field": "agent.name", "size": 20}},
+            }
+        }, index="wazuh-states-vulnerabilities-*")
+        va = vd.get("aggregations", {})
+        sevs = {b["key"].lower(): b["doc_count"]
+                for b in va.get("by_severity", {}).get("buckets", [])}
+        report["wazuh_vulnerabilities"] = {
+            "total":    vuln_total,
+            "critical": sevs.get("critical", 0),
+            "high":     sevs.get("high",     0),
+            "medium":   sevs.get("medium",   0),
+            "low":      sevs.get("low",      0),
+            "top_packages": [
+                {"package": b["key"], "count": b["doc_count"]}
+                for b in va.get("by_package", {}).get("buckets", [])
+            ],
+            "by_agent": [
+                {"agent": b["key"], "count": b["doc_count"]}
+                for b in va.get("by_agent", {}).get("buckets", [])
+            ],
+        }
+    else:
+        report["wazuh_vulnerabilities"] = {
+            "total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
+            "top_packages": [], "by_agent": [],
+            "note": "Vulnerability states index empty — scanning may not be configured"
+        }
+except Exception as e:
+    report["wazuh_vulnerabilities"] = {
+        "total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
+        "top_packages": [], "by_agent": [], "error": str(e)
+    }
+
+# === Wazuh Security Configuration Assessment (SCA) ===
+# SCA summary data is from wazuh-monitoring-* agent docs (agent.lastSCA fields)
+# or from SCA alert events in the alerts index.
+try:
+    sca_d = _wazuh_query({
+        "size": 20,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "query": {"bool": {"must": [
+            {"range": {"@timestamp": {"gte": "now-7d"}}},
+            {"terms": {"rule.groups": ["sca"]}}
+        ]}},
+        "_source": ["@timestamp", "agent.id", "agent.name",
+                    "data.sca.policy", "data.sca.passed", "data.sca.failed",
+                    "data.sca.invalid", "data.sca.score",
+                    "data.sca.policy_id", "data.sca.description",
+                    "rule.description"]
+    })
+    sca_hits = sca_d.get("hits", {}).get("hits", [])
+    seen_agents = set()
+    sca_summary = []
+    for h in sca_hits:
+        s = h["_source"]
+        ag = s.get("agent", {})
+        sca = s.get("data", {}).get("sca", {})
+        aid = ag.get("id", "")
+        policy_id = sca.get("policy_id", "")
+        key = f"{aid}:{policy_id}"
+        if key in seen_agents:
+            continue
+        seen_agents.add(key)
+        passed = int(sca.get("passed") or 0)
+        failed = int(sca.get("failed") or 0)
+        total  = passed + failed
+        score  = round(passed / total * 100, 1) if total > 0 else None
+        sca_summary.append({
+            "agent_id":        aid,
+            "agent_name":      ag.get("name", ""),
+            "policy":          sca.get("policy", s.get("rule", {}).get("description", "")),
+            "policy_id":       policy_id,
+            "timestamp":       s.get("@timestamp", ""),
+            "passed":          passed,
+            "failed":          failed,
+            "not_applicable":  sca.get("invalid", 0),
+            "score_percent":   score,
+        })
+    report["wazuh_sca"] = sca_summary if sca_summary else {
+        "note": "No SCA events in last 7 days — SCA may require Wazuh Manager API (port 55000 not exposed)",
+        "total_policies": 0
+    }
+except Exception as e:
+    report["wazuh_sca"] = {"error": str(e),
+                            "note": "SCA full detail requires Wazuh API (port 55000)"}
+
+# === Wazuh Compliance — PCI DSS / GDPR — last 24h ===
+try:
+    comp = _wazuh_query({
+        "size": 0,
+        "query": _W24,
+        "aggs": {
+            "pci_dss":      {"terms": {"field": "rule.pci_dss",      "size": 30,
+                                       "order": {"_count": "desc"}}},
+            "gdpr":         {"terms": {"field": "rule.gdpr",         "size": 20,
+                                       "order": {"_count": "desc"}}},
+            "hipaa":        {"terms": {"field": "rule.hipaa",        "size": 20,
+                                       "order": {"_count": "desc"}}},
+            "nist_800_53":  {"terms": {"field": "rule.nist_800_53",  "size": 20,
+                                       "order": {"_count": "desc"}}},
+            "gpg13":        {"terms": {"field": "rule.gpg13",        "size": 20,
+                                       "order": {"_count": "desc"}}},
+        }
+    })
+    if "_error" in comp:
+        raise Exception(comp["_error"])
+    ca = comp.get("aggregations", {})
+    def _comp_list(key):
+        return [{"requirement": b["key"], "count": b["doc_count"]}
+                for b in ca.get(key, {}).get("buckets", [])]
+    report["wazuh_compliance"] = {
+        "window":    "24h",
+        "pci_dss":   _comp_list("pci_dss"),
+        "gdpr":      _comp_list("gdpr"),
+        "hipaa":     _comp_list("hipaa"),
+        "nist_800_53": _comp_list("nist_800_53"),
+        "gpg13":     _comp_list("gpg13"),
+    }
+except Exception as e:
+    report["wazuh_compliance"] = {"error": str(e), "window": "24h"}
+
 # === Grafana Dashboard Exports ===
 # Embed portable dashboard JSONs so AI agents get full dashboard definitions
 # alongside live metrics in one payload.
