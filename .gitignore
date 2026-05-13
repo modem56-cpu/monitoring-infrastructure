@@ -10,6 +10,7 @@ gam-project-*.json
 !dashboards/*.json
 # Allow manually-maintained config files at repo root
 !approved_external_shared_drives.json
+!approved_service_accounts.json
 
 # Runtime data
 logs/

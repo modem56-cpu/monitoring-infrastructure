@@ -119,21 +119,30 @@ groups:
   # --- Employee ↔ GWorkspace Reconciliation ---
 
   - alert: EmployeeOrphanedGWAccount
-    expr: employee_reconcile_orphaned_accounts > 0
+    expr: employee_reconcile_true_orphaned_accounts > 0
     for: 10m
     labels:
       severity: warning
     annotations:
-      summary: "{{ $value }} GW account(s) have no employee record — possible orphaned accounts"
-      description: "Check employee_reconcile_orphan_info metric for affected emails. May indicate offboarded employees still with access."
+      summary: "{{ $value }} GW account(s) have no employee record and are not approved service accounts"
+      description: "Check employee_reconcile_true_orphan_info metric for affected emails. Approved service accounts are excluded. May indicate offboarded employees still with access."
 
   - alert: EmployeeAdminUnregistered
-    expr: employee_reconcile_admin_unregistered > 0
+    expr: employee_reconcile_unauthorized_admins_total > 0
     for: 5m
     labels:
       severity: critical
     annotations:
-      summary: "{{ $value }} GW admin account(s) NOT in employee roster — unauthorized admin"
+      summary: "{{ $value }} GW admin account(s) are unauthorized — not in authorized admin list and not an approved service account"
+
+  - alert: ServiceAccountAdminReview
+    expr: employee_reconcile_service_account_admin_total > 0
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{{ $value }} approved service account(s) have GW admin privileges — verify if intentional"
+      description: "Check employee_reconcile_service_account_admin_info for affected accounts. If admin access is intentional, add to authorized_admins.json."
 
   - alert: EmployeeSuspendedActive
     expr: employee_reconcile_suspended_active_employees > 0
@@ -152,9 +161,12 @@ groups:
       summary: "Employee reconcile collector is failing"
 
   - alert: EmployeeGWCountMismatch
-    expr: abs(employee_reconcile_active_employees - employee_reconcile_gw_active_total) > 5
+    expr: >
+      abs(employee_reconcile_active_employees -
+          (employee_reconcile_gw_active_total
+           - employee_reconcile_approved_service_accounts_total)) > 5
     for: 30m
     labels:
       severity: warning
     annotations:
-      summary: "Employee roster vs GW active users differ by {{ $value | humanize }} — check for orphaned or unprovisioned accounts"
+      summary: "Employee roster vs GW active users (ex. service accounts) differ by {{ $value | humanize }} — check for orphaned or unprovisioned accounts"

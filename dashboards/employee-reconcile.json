@@ -61,56 +61,16 @@
   ],
   "panels": [
     {
-      "description": "GW users with NO employee record \u2014 offboarding risk",
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        }
-      },
+      "id": 1,
+      "type": "stat",
+      "title": "True Orphaned Accounts",
+      "description": "GW accounts with no employee record, not a service account, not an authorized admin",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 3,
         "x": 0,
         "y": 0
       },
-      "id": 1,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "employee_reconcile_orphaned_accounts or vector(0)",
-          "instant": true,
-          "legendFormat": "Orphaned"
-        }
-      ],
-      "title": "Orphaned GW Accounts",
-      "type": "stat"
-    },
-    {
-      "description": "GW admin accounts with no employee record \u2014 unauthorized admin risk",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -128,13 +88,6 @@
           }
         }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 0
-      },
-      "id": 2,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
@@ -150,16 +103,72 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_admin_unregistered or vector(0)",
+          "expr": "employee_reconcile_true_orphaned_accounts or vector(0)",
           "instant": true,
-          "legendFormat": "Admin"
+          "legendFormat": ""
         }
-      ],
-      "title": "Unregistered Admins",
-      "type": "stat"
+      ]
     },
     {
+      "id": 2,
+      "type": "stat",
+      "title": "Unauthorized Admins",
+      "description": "GW admin accounts not in authorized admin list and not an approved service account",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_unauthorized_admins_total or vector(0)",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Suspended \u2014 Active Employee",
       "description": "Active employees whose GW account is suspended",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -177,13 +186,6 @@
           }
         }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 0
-      },
-      "id": 3,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
@@ -201,14 +203,21 @@
           },
           "expr": "employee_reconcile_suspended_active_employees or vector(0)",
           "instant": true,
-          "legendFormat": "Suspended"
+          "legendFormat": ""
         }
-      ],
-      "title": "Suspended \u2014 Active Employee",
-      "type": "stat"
+      ]
     },
     {
-      "description": "Employees in roster with no Google Workspace account",
+      "id": 4,
+      "type": "stat",
+      "title": "Missing GW Accounts",
+      "description": "Active employees with no Google Workspace account",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -226,13 +235,6 @@
           }
         }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 0
-      },
-      "id": 4,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
@@ -250,13 +252,21 @@
           },
           "expr": "employee_reconcile_missing_gw_accounts or vector(0)",
           "instant": true,
-          "legendFormat": "Missing"
+          "legendFormat": ""
         }
-      ],
-      "title": "Missing GW Accounts",
-      "type": "stat"
+      ]
     },
     {
+      "id": 5,
+      "type": "stat",
+      "title": "Active Employees",
+      "description": "Active employees in the HR roster",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -270,13 +280,6 @@
           }
         }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 0
-      },
-      "id": 5,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -294,13 +297,21 @@
           },
           "expr": "employee_reconcile_active_employees or vector(0)",
           "instant": true,
-          "legendFormat": "Employees"
+          "legendFormat": ""
         }
-      ],
-      "title": "Employees in Roster",
-      "type": "stat"
+      ]
     },
     {
+      "id": 6,
+      "type": "stat",
+      "title": "GW Active Users",
+      "description": "Active (non-suspended) Google Workspace users",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 0
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -314,13 +325,6 @@
           }
         }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 0
-      },
-      "id": 6,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -338,14 +342,115 @@
           },
           "expr": "employee_reconcile_gw_active_total or vector(0)",
           "instant": true,
-          "legendFormat": "GW Users"
+          "legendFormat": ""
         }
-      ],
-      "title": "GW Active Users",
-      "type": "stat"
+      ]
     },
     {
-      "description": "Track orphaned accounts and coverage drift over time",
+      "id": 7,
+      "type": "stat",
+      "title": "Approved Service Accounts",
+      "description": "Approved service / shared / system GW accounts \u2014 excluded from orphan count",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_approved_service_accounts_total or vector(0)",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Svc Acct w/ Admin",
+      "description": "Approved service accounts that have GW admin privileges \u2014 review if intentional",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_service_account_admin_total or vector(0)",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Account Status Trend (7 days)",
+      "description": "Historical counts \u2014 current state at right edge of chart",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -357,7 +462,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "orphaned"
+              "options": "true_orphaned"
             },
             "properties": [
               {
@@ -372,13 +477,28 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "admin_unregistered"
+              "options": "unauthorized_admin"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
                   "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service_accounts"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
                   "mode": "fixed"
                 }
               }
@@ -398,16 +518,24 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "missing_gw"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
-      "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 4
-      },
-      "id": 10,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -423,16 +551,24 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_orphaned_accounts",
-          "legendFormat": "orphaned"
+          "expr": "employee_reconcile_true_orphaned_accounts",
+          "legendFormat": "true_orphaned"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_admin_unregistered",
-          "legendFormat": "admin_unregistered"
+          "expr": "employee_reconcile_unauthorized_admins_total",
+          "legendFormat": "unauthorized_admin"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_approved_service_accounts_total",
+          "legendFormat": "service_accounts"
         },
         {
           "datasource": {
@@ -450,12 +586,19 @@
           "expr": "employee_reconcile_missing_gw_accounts",
           "legendFormat": "missing_gw"
         }
-      ],
-      "title": "Account Status Trend (7 days)",
-      "type": "timeseries"
+      ]
     },
     {
-      "description": "These GW users are NOT in the employee roster. Possible offboarded employees. Verify and disable if no longer active.",
+      "id": 20,
+      "type": "table",
+      "title": "True Orphaned GW Accounts \u2014 No Employee Record",
+      "description": "GW accounts not in employee roster, not an approved service account, not an authorized admin. Verify and disable if no longer active.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -493,24 +636,24 @@
                 "id": "mappings",
                 "value": [
                   {
+                    "type": "value",
                     "options": {
                       "true": {
                         "color": "red",
                         "index": 0,
                         "text": "ADMIN"
                       }
-                    },
-                    "type": "value"
+                    }
                   },
                   {
+                    "type": "value",
                     "options": {
                       "false": {
                         "color": "green",
                         "index": 1,
                         "text": "user"
                       }
-                    },
-                    "type": "value"
+                    }
                   }
                 ]
               }
@@ -542,13 +685,6 @@
           }
         ]
       },
-      "gridPos": {
-        "h": 10,
-        "w": 12,
-        "x": 0,
-        "y": 11
-      },
-      "id": 20,
       "options": {
         "footer": {
           "show": false
@@ -560,13 +696,12 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_orphan_info",
+          "expr": "employee_reconcile_true_orphan_info",
           "format": "table",
           "instant": true,
           "legendFormat": ""
         }
       ],
-      "title": "Orphaned GW Accounts \u2014 No Employee Record",
       "transformations": [
         {
           "id": "labelsToFields",
@@ -584,16 +719,25 @@
             },
             "renameByName": {
               "email": "Email",
+              "name": "Name",
               "is_admin": "Admin?",
-              "name": "Name"
+              "authorized": "Authorized"
             }
           }
         }
-      ],
-      "type": "table"
+      ]
     },
     {
-      "description": "In the employee roster but no Google Workspace account found. Possible provisioning gap.",
+      "id": 21,
+      "type": "table",
+      "title": "Employees Missing GW Account",
+      "description": "Active employees in the HR roster with no Google Workspace account. Possible provisioning gap.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -639,13 +783,6 @@
           }
         ]
       },
-      "gridPos": {
-        "h": 10,
-        "w": 12,
-        "x": 12,
-        "y": 11
-      },
-      "id": 21,
       "options": {
         "footer": {
           "show": false
@@ -663,7 +800,6 @@
           "legendFormat": ""
         }
       ],
-      "title": "Employees Missing GW Account",
       "transformations": [
         {
           "id": "labelsToFields",
@@ -680,17 +816,198 @@
               "__name__": true
             },
             "renameByName": {
-              "department": "Department",
               "email": "Email",
-              "name": "Name"
+              "name": "Name",
+              "department": "Department"
             }
           }
         }
-      ],
-      "type": "table"
+      ]
     },
     {
+      "id": 40,
+      "type": "table",
+      "title": "Approved Service Accounts",
+      "description": "Approved service / shared / system GW accounts. Not counted as orphaned accounts. Monitor for admin privileges, suspension, and security risks.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "email"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 280
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "owner"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_admin"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "color": "yellow",
+                        "index": 0,
+                        "text": "ADMIN"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "false": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "\u2014"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_service_account_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "email": "Email",
+              "type": "Type",
+              "label": "Label",
+              "owner": "Owner",
+              "status": "Status",
+              "is_admin": "Admin?"
+            },
+            "indexByName": {
+              "email": 0,
+              "label": 1,
+              "type": 2,
+              "owner": 3,
+              "status": 4,
+              "is_admin": 5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Firing Alerts \u2014 Identity & Employee",
       "description": "All employee reconciliation alerts currently firing in Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -716,31 +1033,31 @@
                 "id": "mappings",
                 "value": [
                   {
+                    "type": "value",
                     "options": {
                       "critical": {
                         "color": "red",
                         "index": 0
                       }
-                    },
-                    "type": "value"
+                    }
                   },
                   {
+                    "type": "value",
                     "options": {
                       "warning": {
                         "color": "yellow",
                         "index": 1
                       }
-                    },
-                    "type": "value"
+                    }
                   },
                   {
+                    "type": "value",
                     "options": {
                       "info": {
                         "color": "blue",
                         "index": 2
                       }
-                    },
-                    "type": "value"
+                    }
                   }
                 ]
               }
@@ -782,23 +1099,10 @@
           }
         ]
       },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 21
-      },
-      "id": 30,
       "options": {
         "footer": {
           "show": false
-        },
-        "sortBy": [
-          {
-            "desc": false,
-            "displayName": "Severity"
-          }
-        ]
+        }
       },
       "targets": [
         {
@@ -806,13 +1110,12 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "ALERTS{alertstate=\"firing\",alertname=~\"Employee.*\"}",
+          "expr": "ALERTS{alertstate=\"firing\",alertname=~\"Employee.*|ServiceAccount.*\"}",
           "format": "table",
           "instant": true,
           "legendFormat": ""
         }
       ],
-      "title": "Firing Alerts \u2014 Identity & Employee",
       "transformations": [
         {
           "id": "labelsToFields",
@@ -826,18 +1129,16 @@
             "excludeByName": {
               "Time": true,
               "__name__": true,
-              "instance": true,
-              "job": true
+              "Value": true,
+              "alertstate": true
             },
             "renameByName": {
               "alertname": "Alert",
-              "alertstate": "State",
               "severity": "Severity"
             }
           }
         }
-      ],
-      "type": "table"
+      ]
     }
   ],
   "refresh": "5m",
@@ -858,5 +1159,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Employee \u2194 GWorkspace Reconciliation",
-  "uid": "employee-reconcile"
+  "uid": "employee-reconcile",
+  "version": 0
 }

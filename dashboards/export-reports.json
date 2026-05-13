@@ -2300,13 +2300,14 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_orphaned_accounts or vector(0)",
+          "expr": "employee_reconcile_true_orphaned_accounts or vector(0)",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Orphaned GW Accounts",
-      "type": "stat"
+      "title": "True Orphaned GW Accounts",
+      "type": "stat",
+      "description": "GW accounts with no employee record, not a service account, not an authorized admin"
     },
     {
       "datasource": {
@@ -2471,13 +2472,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "employee_reconcile_orphan_info",
+          "expr": "employee_reconcile_true_orphan_info",
           "instant": true,
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Orphaned GW Accounts (in GW but not in roster) \u2014 exportable",
+      "title": "True Orphaned GW Accounts (not in roster, not service account) \u2014 exportable",
       "transformations": [
         {
           "id": "labelsToFields",
@@ -2503,7 +2504,8 @@
           }
         }
       ],
-      "type": "table"
+      "type": "table",
+      "description": "GW accounts with no employee record and not an approved service account. Requires review and possible offboarding."
     },
     {
       "datasource": {
@@ -2610,12 +2612,352 @@
       "type": "table"
     },
     {
+      "id": 40,
+      "type": "stat",
+      "title": "Approved Service Accounts",
+      "description": "Approved service / shared / system GW accounts",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_approved_service_accounts_total or vector(0)",
+          "instant": true,
+          "legendFormat": "Service Accounts"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Service Acct w/ Admin",
+      "description": "Approved service accounts that have GW admin privileges",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_service_account_admin_total or vector(0)",
+          "instant": true,
+          "legendFormat": "Svc Acct Admin"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "table",
+      "title": "Approved Service Accounts \u2014 exportable CSV",
+      "description": "All approved service / shared / system GW accounts. Not counted as orphaned.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 90
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "email"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 280
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_admin"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "color": "yellow",
+                        "index": 0,
+                        "text": "ADMIN"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "false": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "\u2014"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_service_account_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "email": "Email",
+              "type": "Type",
+              "label": "Label",
+              "owner": "Owner",
+              "status": "Status",
+              "is_admin": "Admin?"
+            },
+            "indexByName": {
+              "email": 0,
+              "label": 1,
+              "type": 2,
+              "owner": 3,
+              "status": 4,
+              "is_admin": 5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "table",
+      "title": "Service Accounts with Admin Privileges \u2014 exportable CSV",
+      "description": "Approved service accounts that have GW admin privileges. Verify intentional and document if approved.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "email"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 280
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "employee_reconcile_service_account_admin_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "email": "Email",
+              "type": "Type",
+              "label": "Label"
+            }
+          }
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 86
+        "y": 108
       },
       "id": 31,
       "panels": [],
@@ -2628,7 +2970,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 87
+        "y": 109
       },
       "id": 32,
       "options": {

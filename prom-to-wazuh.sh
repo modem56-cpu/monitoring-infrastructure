@@ -199,29 +199,44 @@ for r in data.get('data',{}).get('result',[]):
 done
 
 # ============================================================
-# 12. Employee Reconciliation — Orphaned GW Accounts
+# 12. Employee Reconciliation — True Orphaned GW Accounts
+#     (approved service accounts are excluded from this count)
 # ============================================================
-query 'employee_reconcile_orphaned_accounts > 0' | python3 -c "
+query 'employee_reconcile_true_orphaned_accounts > 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "EmployeeOrphanedAccounts" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Employee reconcile: ${val} GW accounts have no employee roster match"
+  emit "EmployeeOrphanedAccounts" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Employee reconcile: ${val} GW accounts have no employee record and are not approved service accounts"
 done
 
 # ============================================================
 # 13. Employee Reconciliation — Unauthorized Admin
+#     (authorized admins and service accounts are excluded)
 # ============================================================
-query 'employee_reconcile_admin_unregistered > 0' | python3 -c "
+query 'employee_reconcile_unauthorized_admins_total > 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "EmployeeUnauthorizedAdmin" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Employee reconcile: ${val} unauthorized GW admin accounts detected"
+  emit "EmployeeUnauthorizedAdmin" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Employee reconcile: ${val} unauthorized GW admin accounts detected (not authorized, not a service account)"
+done
+
+# ============================================================
+# 13b. Employee Reconciliation — Service Account with Admin
+# ============================================================
+query 'employee_reconcile_service_account_admin_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "ServiceAccountAdminReview" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Employee reconcile: ${val} approved service account(s) have GW admin privileges — verify if intentional"
 done
 
 # ============================================================
