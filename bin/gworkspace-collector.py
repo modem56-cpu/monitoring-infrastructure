@@ -619,15 +619,25 @@ EXCEPTION_OUS = ("/Yokly/SHARED-DRIVES-EXTERNAL",)
 # Service accounts and shared/bot mailboxes — excluded from UNRESTRICTED alerts
 EXTSHARE_EXCLUDE_PATTERNS = (".iam.gserviceaccount.com",)
 EXTSHARE_EXCLUDE_EMAILS = {
-    "billing@yokly.gives",
-    "it_dept@yokly.gives",
-    "it_dept@agapay.gives",
+    # AI service accounts
     "clientjourney.ai@yokly.gives",
     "hradvisor.ai@yokly.gives",
     "salesmarketing.ai@yokly.gives",
+    # Shared inboxes
+    "billing@yokly.gives",
+    "it_dept@yokly.gives",
+    "it_dept@agapay.gives",
     "agapay_socials@agapay.gives",
     "yokly@yokly.gives",
     "eve@yoklygives.com",
+    # Leadership/shared accounts (approved service accounts — not human employees)
+    "brian@agapay.gives",
+    "dan@agapayfoundation.org",
+    "dan@yokly.gives",
+    "elise.parker@yokly.gives",
+    "johnny@yokly.gives",
+    "tailscale.access@yokly.gives",
+    "tim@yokly.gives",
 }
 # Privileged/admin users legitimately exempt from restriction
 EXTSHARE_EXEMPT = EXEMPT  # reuse 50GB exempt list (same privileged users)
@@ -659,9 +669,11 @@ try:
 
     # Classify active users
     # Priority: OU override (EXCEPTION) > Group membership (BLOCKED) > otherwise UNRESTRICTED
+    # Excluded service/shared accounts are tracked separately (not in any policy category)
     blocked_users = []
     exception_users = []
     unrestricted_users = []
+    excluded_users = []   # service/shared accounts excluded from policy tracking
 
     for u in active_users:
         email = (u.get("primaryEmail") or "").strip().lower()
@@ -673,7 +685,9 @@ try:
         elif email in blocked_members:
             blocked_users.append((email, ou))
         else:
-            if not _extshare_excluded(email):
+            if _extshare_excluded(email):
+                excluded_users.append((email, ou))
+            else:
                 unrestricted_users.append((email, ou))
 
     prom_lines.append("# HELP gworkspace_extshare_blocked_users Active users in restrictive group (compliant)")
@@ -692,6 +706,15 @@ try:
     prom_lines.append("# TYPE gworkspace_extshare_restrictive_groups_configured gauge")
     emit_prom("gworkspace_extshare_restrictive_groups_configured", len(RESTRICTED_GROUPS))
 
+    policy_total = len(unrestricted_users) + len(blocked_users) + len(exception_users)
+    prom_lines.append("# HELP gworkspace_extshare_policy_total_users Total active GW users tracked by external sharing policy (unrestricted + blocked + exception)")
+    prom_lines.append("# TYPE gworkspace_extshare_policy_total_users gauge")
+    emit_prom("gworkspace_extshare_policy_total_users", policy_total)
+
+    prom_lines.append("# HELP gworkspace_extshare_excluded_service_accounts Approved service/shared accounts excluded from external sharing policy tracking")
+    prom_lines.append("# TYPE gworkspace_extshare_excluded_service_accounts gauge")
+    emit_prom("gworkspace_extshare_excluded_service_accounts", len(excluded_users))
+
     # Per-user labels (for tables + drill-down)
     prom_lines.append("# HELP gworkspace_extshare_user_category Per-user external sharing category (1 = in this category)")
     prom_lines.append("# TYPE gworkspace_extshare_user_category gauge")
@@ -704,6 +727,12 @@ try:
     for email, ou in unrestricted_users:
         emit_prom("gworkspace_extshare_user_category", 1,
                   {"user": email, "category": "unrestricted", "ou": ou})
+
+    prom_lines.append("# HELP gworkspace_extshare_excluded_user_info 1 for each service/shared account excluded from external sharing policy tracking")
+    prom_lines.append("# TYPE gworkspace_extshare_excluded_user_info gauge")
+    for email, ou in excluded_users:
+        emit_prom("gworkspace_extshare_excluded_user_info", 1,
+                  {"user": email, "ou": ou})
 
     # Wazuh alerts
     if unrestricted_users:

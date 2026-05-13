@@ -374,6 +374,31 @@
       "type": "stat"
     },
     {
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 13,
+      "targets": [
+        {
+          "expr": "gworkspace_login_events_total",
+          "legendFormat": "Login"
+        },
+        {
+          "expr": "gworkspace_admin_events_total",
+          "legendFormat": "Admin"
+        },
+        {
+          "expr": "gworkspace_drive_events_total",
+          "legendFormat": "Drive"
+        }
+      ],
+      "title": "Event Activity",
+      "type": "timeseries"
+    },
+    {
       "fieldConfig": {
         "defaults": {
           "max": 100,
@@ -473,6 +498,99 @@
       ],
       "title": "Storage Breakdown",
       "type": "piechart"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 9,
+        "y": 16
+      },
+      "id": 30,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "gworkspace_org_storage_used_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Total Used (TB)"
+        },
+        {
+          "expr": "gworkspace_org_drive_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Drive (TB)"
+        },
+        {
+          "expr": "gworkspace_org_shared_drive_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Shared Drives (TB)"
+        },
+        {
+          "expr": "gworkspace_org_gmail_bytes / 1024 / 1024 / 1024",
+          "legendFormat": "Gmail (GB)"
+        },
+        {
+          "expr": "gworkspace_org_photos_bytes / 1024 / 1024 / 1024",
+          "legendFormat": "Photos (GB)"
+        },
+        {
+          "expr": "gworkspace_org_storage_available_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Available (TB)"
+        },
+        {
+          "expr": "gworkspace_org_personal_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Personal (TB)"
+        }
+      ],
+      "title": "Org Storage Details",
+      "type": "stat"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "unit": "TB"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "id": 14,
+      "targets": [
+        {
+          "expr": "gworkspace_org_storage_used_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Total Used (TB)"
+        },
+        {
+          "expr": "gworkspace_org_drive_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Drive (TB)"
+        },
+        {
+          "expr": "gworkspace_org_shared_drive_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Shared Drives (TB)"
+        },
+        {
+          "expr": "gworkspace_org_gmail_bytes / 1024 / 1024 / 1024",
+          "legendFormat": "Gmail (GB)"
+        },
+        {
+          "expr": "gworkspace_org_storage_total_bytes / 1024 / 1024 / 1024 / 1024",
+          "legendFormat": "Pool Total (TB)"
+        }
+      ],
+      "title": "Org Storage Trend",
+      "type": "timeseries"
     },
     {
       "fieldConfig": {
@@ -641,223 +759,6 @@
     },
     {
       "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 8
-      },
-      "id": 13,
-      "targets": [
-        {
-          "expr": "gworkspace_login_events_total",
-          "legendFormat": "Login"
-        },
-        {
-          "expr": "gworkspace_admin_events_total",
-          "legendFormat": "Admin"
-        },
-        {
-          "expr": "gworkspace_drive_events_total",
-          "legendFormat": "Drive"
-        }
-      ],
-      "title": "Event Activity",
-      "type": "timeseries"
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "unit": "TB"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 16
-      },
-      "id": 14,
-      "targets": [
-        {
-          "expr": "gworkspace_org_storage_used_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Total Used (TB)"
-        },
-        {
-          "expr": "gworkspace_org_drive_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Drive (TB)"
-        },
-        {
-          "expr": "gworkspace_org_shared_drive_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Shared Drives (TB)"
-        },
-        {
-          "expr": "gworkspace_org_gmail_bytes / 1024 / 1024 / 1024",
-          "legendFormat": "Gmail (GB)"
-        },
-        {
-          "expr": "gworkspace_org_storage_total_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Pool Total (TB)"
-        }
-      ],
-      "title": "Org Storage Trend",
-      "type": "timeseries"
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 2
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 7,
-        "x": 9,
-        "y": 16
-      },
-      "id": 30,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "gworkspace_org_storage_used_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Total Used (TB)"
-        },
-        {
-          "expr": "gworkspace_org_drive_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Drive (TB)"
-        },
-        {
-          "expr": "gworkspace_org_shared_drive_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Shared Drives (TB)"
-        },
-        {
-          "expr": "gworkspace_org_gmail_bytes / 1024 / 1024 / 1024",
-          "legendFormat": "Gmail (GB)"
-        },
-        {
-          "expr": "gworkspace_org_photos_bytes / 1024 / 1024 / 1024",
-          "legendFormat": "Photos (GB)"
-        },
-        {
-          "expr": "gworkspace_org_storage_available_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Available (TB)"
-        },
-        {
-          "expr": "gworkspace_org_personal_bytes / 1024 / 1024 / 1024 / 1024",
-          "legendFormat": "Personal (TB)"
-        }
-      ],
-      "title": "Org Storage Details",
-      "type": "stat"
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "orange",
-                "value": 50
-              },
-              {
-                "color": "red",
-                "value": 100
-              }
-            ]
-          },
-          "unit": "decgbytes"
-        }
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 6,
-        "x": 12,
-        "y": 42
-      },
-      "id": 31,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "topk(10, gworkspace_shared_drive_size_bytes) / 1024 / 1024 / 1024",
-          "legendFormat": "{{drive}}"
-        }
-      ],
-      "title": "Shared Drives \u2014 Top by Size (full enumeration)",
-      "type": "bargauge"
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 500
-              },
-              {
-                "color": "orange",
-                "value": 2000
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 6,
-        "x": 18,
-        "y": 42
-      },
-      "id": 32,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "expr": "topk(10, gworkspace_shared_drive_files)",
-          "legendFormat": "{{drive}}"
-        }
-      ],
-      "title": "Shared Drives \u2014 File Count",
-      "type": "bargauge"
-    },
-    {
-      "gridPos": {
         "h": 10,
         "w": 3,
         "x": 0,
@@ -991,6 +892,105 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "decgbytes"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 12,
+        "y": 42
+      },
+      "id": 31,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(10, gworkspace_shared_drive_size_bytes) / 1024 / 1024 / 1024",
+          "legendFormat": "{{drive}}"
+        }
+      ],
+      "title": "Shared Drives \u2014 Top by Size (full enumeration)",
+      "type": "bargauge"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 500
+              },
+              {
+                "color": "orange",
+                "value": 2000
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 18,
+        "y": 42
+      },
+      "id": 32,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(10, gworkspace_shared_drive_files)",
+          "legendFormat": "{{drive}}"
+        }
+      ],
+      "title": "Shared Drives \u2014 File Count",
+      "type": "bargauge"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
                 "color": "orange",
                 "value": 1
               },
@@ -1024,9 +1024,9 @@
           "legendFormat": "Unrestricted"
         }
       ],
-      "title": "ExtShare Unrestricted (User Policy)",
+      "title": "ExtShare Unrestricted (Human Accounts)",
       "type": "stat",
-      "description": "Active users whose account-level external sharing is NOT blocked by group policy. This counts user ACCOUNTS, not shared drive members. Value reflects ongoing OU migration \u2014 not an alert condition in itself. Alert fires only when this count INCREASES."
+      "description": "Active human GW accounts that can share externally \u2014 NOT in a restrictive group and not an approved service/shared account. Includes employees and true orphaned accounts."
     },
     {
       "fieldConfig": {
@@ -1073,7 +1073,8 @@
         }
       ],
       "title": "ExtShare Blocked (Compliant)",
-      "type": "stat"
+      "type": "stat",
+      "description": "Active GW accounts in a restrictive sharing group (hrou, itdevou, marketingou, trainingou). These users cannot share files externally."
     },
     {
       "fieldConfig": {
@@ -1120,7 +1121,8 @@
         }
       ],
       "title": "ExtShare Exception (SHARED-DRIVES-EXTERNAL)",
-      "type": "stat"
+      "type": "stat",
+      "description": "Active GW accounts in the /Yokly/SHARED-DRIVES-EXTERNAL OU \u2014 explicitly authorized for external sharing on Shared Drives."
     },
     {
       "fieldConfig": {
@@ -1129,12 +1131,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
               }
             ]
           }
@@ -1148,6 +1146,152 @@
       },
       "id": 43,
       "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_extshare_excluded_service_accounts or vector(0)",
+          "instant": true,
+          "legendFormat": "Excluded Svc Accts"
+        }
+      ],
+      "title": "Excluded Service Accounts",
+      "type": "stat",
+      "description": "Approved service / shared / system GW accounts excluded from external sharing policy tracking. These accounts can technically share externally but are not human employees \u2014 they do not count toward the unrestricted, blocked, or exception categories."
+    },
+    {
+      "id": 45,
+      "type": "stat",
+      "title": "Policy Coverage Total (Human Accounts)",
+      "description": "Total active GW human accounts covered by external sharing policy: Unrestricted + Blocked + Exception. Does not include approved service accounts. 98 GW total = Policy Total + Excluded Service Accounts.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_extshare_policy_total_users or vector(0)",
+          "instant": true,
+          "legendFormat": "Policy Total"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "type": "stat",
+      "title": "GW Active Users (Total)",
+      "description": "Total active (non-suspended) Google Workspace users = Policy Covered + Excluded Service Accounts.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_users_active or vector(0)",
+          "instant": true,
+          "legendFormat": "GW Active"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Still Unrestricted (Needs Attention)",
+      "description": "Human GW accounts that can share externally without restriction \u2014 no blocking group, not exception OU. Goal: move accounts to a blocking group or the SHARED-DRIVES-EXTERNAL exception OU.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          }
+        }
+      },
+      "options": {
         "colorMode": "background",
         "graphMode": "none",
         "reduceOptions": {
@@ -1158,12 +1302,15 @@
       },
       "targets": [
         {
-          "expr": "gworkspace_extshare_blocked_users",
-          "legendFormat": "Blocked"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_extshare_unrestricted_users or vector(0)",
+          "instant": true,
+          "legendFormat": "Unrestricted"
         }
-      ],
-      "title": "Users Blocked by Group Policy (Count)",
-      "type": "stat"
+      ]
     },
     {
       "fieldConfig": {
@@ -1198,7 +1345,7 @@
         "h": 8,
         "w": 4,
         "x": 0,
-        "y": 56
+        "y": 60
       },
       "id": 39,
       "options": {},
@@ -1210,120 +1357,6 @@
       ],
       "title": "External Sharing Compliance",
       "type": "gauge"
-    },
-    {
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 64
-      },
-      "id": 40,
-      "targets": [
-        {
-          "expr": "gworkspace_extshare_user_category{category=\"unrestricted\"}",
-          "format": "table",
-          "instant": true,
-          "legendFormat": ""
-        }
-      ],
-      "title": "Users NOT in DEFAULT-BLOCKED OU (can share externally)",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "category": true,
-              "instance": true,
-              "job": true
-            },
-            "renameByName": {
-              "ou": "Org Unit",
-              "user": "User Email"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 64
-      },
-      "id": 41,
-      "targets": [
-        {
-          "expr": "gworkspace_extshare_user_category{category=\"exception\"}",
-          "format": "table",
-          "instant": true,
-          "legendFormat": ""
-        }
-      ],
-      "title": "Users in SHARED-DRIVES-EXTERNAL OU",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "category": true,
-              "instance": true,
-              "job": true
-            },
-            "renameByName": {
-              "ou": "Org Unit",
-              "user": "Authorized Delegate"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 64
-      },
-      "id": 44,
-      "targets": [
-        {
-          "expr": "gworkspace_extshare_user_category{category=\"blocked\"}",
-          "format": "table",
-          "instant": true,
-          "legendFormat": ""
-        }
-      ],
-      "title": "Users Blocked via Group Policy",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value": true,
-              "__name__": true,
-              "category": true,
-              "instance": true,
-              "job": true
-            },
-            "renameByName": {
-              "ou": "Org Unit",
-              "user": "\u26a0 Unauthorized User"
-            }
-          }
-        }
-      ],
-      "type": "table"
     },
     {
       "fieldConfig": {
@@ -1403,7 +1436,7 @@
         "h": 8,
         "w": 20,
         "x": 4,
-        "y": 56
+        "y": 60
       },
       "id": 42,
       "options": {
@@ -1435,6 +1468,120 @@
       ],
       "title": "External Sharing Audit Over Time",
       "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 68
+      },
+      "id": 40,
+      "targets": [
+        {
+          "expr": "gworkspace_extshare_user_category{category=\"unrestricted\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "title": "Users NOT in DEFAULT-BLOCKED OU (can share externally)",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "category": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "ou": "Org Unit",
+              "user": "User Email"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 68
+      },
+      "id": 41,
+      "targets": [
+        {
+          "expr": "gworkspace_extshare_user_category{category=\"exception\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "title": "Users in SHARED-DRIVES-EXTERNAL OU",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "category": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "ou": "Org Unit",
+              "user": "Authorized Delegate"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 68
+      },
+      "id": 44,
+      "targets": [
+        {
+          "expr": "gworkspace_extshare_user_category{category=\"blocked\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "title": "Users Blocked via Group Policy",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "category": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "ou": "Org Unit",
+              "user": "\u26a0 Unauthorized User"
+            }
+          }
+        }
+      ],
+      "type": "table"
     },
     {
       "id": 53,
@@ -1630,6 +1777,102 @@
             "excludeByName": {
               "Time": true,
               "__name__": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "type": "table",
+      "title": "Excluded Service / Shared Accounts \u2014 Not Tracked in Policy",
+      "description": "Approved service and shared GW accounts excluded from external sharing policy tracking. They CAN share externally but are not human employees. Monitored separately via employee-reconcile.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "user"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 280
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "gworkspace_extshare_excluded_user_info",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "user": "Email",
+              "ou": "OU Path"
             }
           }
         }
