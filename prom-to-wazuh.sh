@@ -145,35 +145,61 @@ for r in data.get('data',{}).get('result',[]):
 done
 
 # ============================================================
-# 8. GWorkspace — External Sharing Unrestricted
+# 8. Akvorado flow pipeline health
 # ============================================================
-query 'gworkspace_external_sharing_unrestricted > 0' | python3 -c "
+query 'up{job=~"akvorado_.*"} == 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    m = r['metric']
+    job = m.get('job','')
+    comp = m.get('component','')
+    print(f'{job}|{comp}')
+" 2>/dev/null | while IFS='|' read -r job comp; do
+  emit "AkvoradoDown" "192.168.10.20:8082" "$comp" "critical" "0" "Akvorado $comp is down (job=$job)"
+done
+
+# Check for flow pipeline stall
+no_flows=$(query 'rate(akvorado_inlet_flow_input_udp_packets_total[5m]) == 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+r = data.get('data',{}).get('result',[])
+print(len(r))
+" 2>/dev/null)
+if [ "${no_flows:-0}" -gt 0 ]; then
+  emit "AkvoradoNoFlows" "192.168.10.20:8082" "inlet" "warning" "0" "Akvorado inlet receiving no flow packets"
+fi
+
+# ============================================================
+# 10. GWorkspace — External Sharing Unrestricted
+# ============================================================
+query 'gworkspace_extshare_unrestricted_users > 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while IFS='|' read -r val; do
-  emit "GWorkspaceExternalShare" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "GWorkspace: ${val} drives have unrestricted external sharing"
+  emit "GWorkspaceExternalShare" "192.168.10.20:9100" "wazuh-server" "info" "$val" "GWorkspace: ${val} user(s) in unrestricted external sharing OU (known baseline — OU migration incomplete)"
 done
 
 # ============================================================
-# 9. GWorkspace — Shared Drive Rapid Growth
+# 11. GWorkspace — Shared Drive Rapid Growth (>5 GB in 1h)
 # ============================================================
-query 'gworkspace_shared_drive_growth_gb > 5' | python3 -c "
+query 'increase(gworkspace_shared_drive_size_bytes[1h]) / 1073741824 > 5' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     m = r['metric']
-    drive = m.get('drive_name','unknown')
-    val = r['value'][1]
-    print(f'{drive}|{val}')
+    drive = m.get('drive','unknown')
+    val = float(r['value'][1])
+    print(f'{drive}|{val:.1f}')
 " 2>/dev/null | while IFS='|' read -r drive val; do
-  emit "GWorkspaceDriveGrowth" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Shared drive '${drive}' grew ${val} GB recently"
+  emit "GWorkspaceDriveGrowth" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Shared drive '${drive}' grew ${val} GB in the last hour — possible bulk upload"
 done
 
 # ============================================================
-# 10. Employee Reconciliation — Orphaned GW Accounts
+# 12. Employee Reconciliation — Orphaned GW Accounts
 # ============================================================
 query 'employee_reconcile_orphaned_accounts > 0' | python3 -c "
 import sys, json
@@ -186,7 +212,7 @@ for r in data.get('data',{}).get('result',[]):
 done
 
 # ============================================================
-# 11. Employee Reconciliation — Unauthorized Admin
+# 13. Employee Reconciliation — Unauthorized Admin
 # ============================================================
 query 'employee_reconcile_admin_unregistered > 0' | python3 -c "
 import sys, json
@@ -199,33 +225,61 @@ for r in data.get('data',{}).get('result',[]):
 done
 
 # ============================================================
-# 12. Network — New Device Detected
+# 14. Network — New Device Detected (only when baseline is set)
 # ============================================================
-query 'network_inventory_new_devices_total > 0' | python3 -c "
+query 'network_inventory_discovered_total > 0 and network_inventory_baseline_total > 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "NetworkNewDevice" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Network inventory: ${val} new/unknown device(s) detected on LAN"
+  emit "NetworkNewDevice" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "Network inventory: ${val} new/unknown device(s) detected on LAN since baseline"
 done
 
 # ============================================================
-# 13. Network — ARP Conflict (possible spoofing)
+# 15. Network — ARP Conflict (last 24h, threshold >3 for DHCP churn)
 # ============================================================
-query 'network_inventory_arp_conflicts_total > 0' | python3 -c "
+query 'network_inventory_arp_conflicts_last_24h > 3' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "NetworkARPConflict" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Network inventory: ${val} ARP conflicts detected — possible MAC spoofing"
+  emit "NetworkARPConflict" "192.168.10.20:9100" "wazuh-server" "critical" "$val" "Network inventory: ${val} ARP conflicts in last 24h — possible MAC spoofing"
 done
 
 # ============================================================
-# 14. Unraid Array Usage (> 90%)
+# 14. Akvorado — Kafka Consumer Lag (>10k messages)
+# ============================================================
+query 'akvorado_outlet_kafka_consumergroup_lag_messages > 10000' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    m = r['metric']
+    comp = m.get('component','outlet')
+    val = int(float(r['value'][1]))
+    print(f'{comp}|{val}')
+" 2>/dev/null | while IFS='|' read -r comp val; do
+  emit "AkvoradoKafkaLag" "192.168.10.20:8082" "$comp" "warning" "$val" "Akvorado Kafka consumer lag: ${val} messages behind — flow data may be delayed"
+done
+
+# ============================================================
+# 15. GWorkspace — User Over 50GB Quota
+# ============================================================
+query 'gworkspace_drive_users_over_quota > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "GWorkspaceOverQuota" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "GWorkspace: ${val} non-exempt user(s) over 50GB storage quota"
+done
+
+# ============================================================
+# 16. Unraid Array Usage (> 90%)
 # ============================================================
 query 'tower_unraid_array_used_percent > 90' | python3 -c "
 import sys, json

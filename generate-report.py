@@ -319,6 +319,59 @@ try:
 except Exception as e:
     report["wazuh_agents"] = f"Error: {e}"
 
+# === Wazuh Alert Summary — last 24h ===
+try:
+    wazuh_alert_body = json.dumps({
+        "size": 0,
+        "query": {"range": {"@timestamp": {"gte": "now-24h"}}},
+        "aggs": {
+            "by_level": {
+                "terms": {"field": "rule.level", "size": 15, "order": {"_key": "desc"}}
+            },
+            "by_agent": {
+                "terms": {"field": "agent.name", "size": 20, "order": {"_count": "desc"}}
+            },
+            "by_rule": {
+                "terms": {"field": "rule.description", "size": 20, "order": {"_count": "desc"}}
+            },
+            "prometheus_bridge": {
+                "filter": {"term": {"data.source": "prometheus"}},
+                "aggs": {
+                    "by_alertname": {
+                        "terms": {"field": "data.alertname", "size": 20, "order": {"_count": "desc"}}
+                    },
+                    "by_severity": {
+                        "terms": {"field": "data.severity", "size": 10}
+                    }
+                }
+            }
+        }
+    }).encode()
+    req_wa = urllib.request.Request(
+        "https://172.18.0.1:9200/wazuh-alerts-4.x-*/_search",
+        data=wazuh_alert_body,
+        headers={"Authorization": wazuh_auth, "Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req_wa, context=ctx, timeout=10) as r:
+        wda = json.loads(r.read().decode())
+    aggs = wda.get("aggregations", {})
+    prom_bridge = aggs.get("prometheus_bridge", {})
+    report["wazuh_alerts_last_24h"] = {
+        "by_level":  {str(b["key"]): b["doc_count"] for b in aggs.get("by_level", {}).get("buckets", [])},
+        "by_agent":  {b["key"]: b["doc_count"] for b in aggs.get("by_agent", {}).get("buckets", [])},
+        "by_rule":   {b["key"]: b["doc_count"] for b in aggs.get("by_rule", {}).get("buckets", [])},
+        "prometheus_bridge_by_alertname": {
+            b["key"]: b["doc_count"]
+            for b in prom_bridge.get("by_alertname", {}).get("buckets", [])
+        },
+        "prometheus_bridge_by_severity": {
+            b["key"]: b["doc_count"]
+            for b in prom_bridge.get("by_severity", {}).get("buckets", [])
+        },
+    }
+except Exception as e:
+    report["wazuh_alerts_last_24h"] = f"Error: {e}"
+
 # === Grafana Dashboard Exports ===
 # Embed portable dashboard JSONs so AI agents get full dashboard definitions
 # alongside live metrics in one payload.
