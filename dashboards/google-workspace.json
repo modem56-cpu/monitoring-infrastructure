@@ -47,7 +47,7 @@
       },
       "targets": [
         {
-          "expr": "gworkspace_report_date_unixtime",
+          "expr": "gworkspace_report_date_unixtime * 1000",
           "legendFormat": ""
         }
       ],
@@ -145,7 +145,7 @@
       },
       "targets": [
         {
-          "expr": "gworkspace_collector_last_success_unixtime",
+          "expr": "gworkspace_collector_last_success_unixtime * 1000",
           "legendFormat": ""
         }
       ],
