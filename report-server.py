@@ -19,6 +19,8 @@ PORT = 8088
 
 
 class ReportHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # Required for Content-Disposition: attachment in browsers
+
     def log_message(self, fmt, *args):
         # Suppress per-request stdout noise; errors still go to stderr
         pass
@@ -47,7 +49,8 @@ class ReportHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(size))
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Connection", "close")
         if force_download:
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         else:
