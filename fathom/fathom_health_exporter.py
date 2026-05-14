@@ -30,7 +30,7 @@ from shutil import disk_usage
 NAS_MOUNT     = "/opt/fathom-vault-sync/nas"
 DB_PATH       = "/opt/fathom-vault-sync/nas/fathom.db"
 STALE_DB_PATH = "/opt/fathom-vault-sync/meeting_transcript_repository-master/fathom.db"
-PROM_PATH     = "/var/lib/node_exporter/textfile_collector/fathom_health.prom"
+PROM_PATH     = "/var/lib/prometheus/node-exporter/fathom_health.prom"
 PROM_DIR      = os.path.dirname(PROM_PATH)
 
 STATE_DIR       = "/var/lib/fathom-monitoring"

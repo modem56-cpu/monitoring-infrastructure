@@ -35,7 +35,7 @@
 <!-- Prometheus textfile — watch for exporter_success=0 -->
 <localfile>
   <log_format>syslog</log_format>
-  <location>/var/lib/node_exporter/textfile_collector/fathom_health.prom</location>
+  <location>/var/lib/prometheus/node-exporter/fathom_health.prom</location>
 </localfile>
 
 <!-- Flask app log -->
