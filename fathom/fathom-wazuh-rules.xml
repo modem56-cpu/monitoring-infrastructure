@@ -240,4 +240,57 @@
     <group>fathom,fathom.exporter.failed,</group>
   </rule>
 
+  <!-- ================================================================
+       DB integrity tracking events (from fathom_db_events.log)
+       These are JSON events emitted by fathom_health_exporter.py
+       ================================================================ -->
+
+  <!-- 200160: DB inode changed — possible file swap or restore -->
+  <rule id="200160" level="12">
+    <if_sid>1002</if_sid>
+    <match>db_inode_changed</match>
+    <description>Fathom DB inode changed — DB file may have been replaced or restored from backup</description>
+    <group>fathom,fathom.db.inode.changed,</group>
+  </rule>
+
+  <!-- 200161: DB checksum changed — content modified outside normal sync -->
+  <rule id="200161" level="10">
+    <if_sid>1002</if_sid>
+    <match>db_checksum_changed</match>
+    <description>Fathom DB partial checksum changed — DB content was modified since last check</description>
+    <group>fathom,fathom.db.checksum.changed,</group>
+  </rule>
+
+  <!-- 200162: DB file shrank -->
+  <rule id="200162" level="12">
+    <if_sid>1002</if_sid>
+    <match>db_size_decreased</match>
+    <description>Fathom DB file size decreased — possible truncation, rollback, or wrong file</description>
+    <group>fathom,fathom.db.size.decreased,</group>
+  </rule>
+
+  <!-- 200163: SQLite integrity check failed -->
+  <rule id="200163" level="12">
+    <if_sid>1002</if_sid>
+    <match>db_integrity_check_failed</match>
+    <description>Fathom SQLite PRAGMA integrity_check failed — database corruption detected</description>
+    <group>fathom,fathom.db.corruption,</group>
+  </rule>
+
+  <!-- 200164: Total meeting count decreased -->
+  <rule id="200164" level="10">
+    <if_sid>1002</if_sid>
+    <match>db_meeting_count_decreased</match>
+    <description>Fathom total meeting count decreased — possible data loss or wrong DB attached</description>
+    <group>fathom,fathom.db.meetings.decreased,</group>
+  </rule>
+
+  <!-- 200165: Video/transcript/summary count decreased -->
+  <rule id="200165" level="7">
+    <if_sid>1002</if_sid>
+    <match>db_video_count_decreased|db_transcript_count_decreased|db_summary_count_decreased</match>
+    <description>Fathom coverage count (video/transcript/summary) decreased since last check</description>
+    <group>fathom,fathom.db.coverage.decreased,</group>
+  </rule>
+
 </group>

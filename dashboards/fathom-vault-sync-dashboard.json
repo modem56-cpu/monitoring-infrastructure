@@ -1266,13 +1266,768 @@
       ]
     },
     {
+      "id": 105,
+      "type": "row",
+      "title": "DB Integrity Tracking",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "DB Integrity",
+      "description": "SQLite PRAGMA integrity_check result (1=ok, 0=corrupt, -1=not run)",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "OK",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "FAIL",
+                  "color": "red"
+                },
+                "-1": {
+                  "text": "N/A",
+                  "color": "grey"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_sqlite_integrity_ok",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Regression Detected",
+      "description": "1 if any DB regression (size\u2193, inode swap, checksum change, count\u2193, corruption) detected this run",
+      "gridPos": {
+        "x": 6,
+        "y": 40,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Clean",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "REGRESSION",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_regression_detected",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Inode Changed",
+      "description": "1 if DB inode changed since last run (possible file swap)",
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Same",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "CHANGED",
+                  "color": "red"
+                },
+                "-1": {
+                  "text": "N/A",
+                  "color": "grey"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_inode_changed",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Checksum Changed",
+      "description": "1 if partial SHA-256 changed since last run",
+      "gridPos": {
+        "x": 18,
+        "y": 40,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Same",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "Changed",
+                  "color": "red"
+                },
+                "-1": {
+                  "text": "N/A",
+                  "color": "grey"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_checksum_changed",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "DB Size Delta",
+      "description": "Change in DB file size since last run (bytes)",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_size_delta_bytes",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Meeting Count Delta",
+      "description": "Change in total meetings since last run",
+      "gridPos": {
+        "x": 6,
+        "y": 44,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_total_meetings_delta",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Video Delta",
+      "description": "Change in has_video count since last run",
+      "gridPos": {
+        "x": 10,
+        "y": 44,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_has_video_delta",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Transcript Delta",
+      "description": "Change in has_transcript count since last run",
+      "gridPos": {
+        "x": 14,
+        "y": 44,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_has_transcript_delta",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Summary Delta",
+      "description": "Change in has_summary count since last run",
+      "gridPos": {
+        "x": 18,
+        "y": 44,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_has_summary_delta",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "DB mtime",
+      "description": "Last modification time of DB file (Unix timestamp)",
+      "gridPos": {
+        "x": 22,
+        "y": 44,
+        "w": 2,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "afiwke54zcjcwe"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "afiwke54zcjcwe"
+          },
+          "expr": "fathom_db_mtime_unixtime",
+          "instant": true,
+          "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 104,
       "type": "row",
       "title": "System Resources",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 55,
         "w": 24,
         "h": 1
       }
@@ -1284,7 +2039,7 @@
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 56,
         "w": 6,
         "h": 6
       },
@@ -1350,7 +2105,7 @@
       "description": "",
       "gridPos": {
         "x": 6,
-        "y": 45,
+        "y": 56,
         "w": 6,
         "h": 6
       },
@@ -1416,7 +2171,7 @@
       "description": "Shows any Fathom unit that is not active",
       "gridPos": {
         "x": 12,
-        "y": 45,
+        "y": 56,
         "w": 12,
         "h": 6
       },

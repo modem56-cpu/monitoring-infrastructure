@@ -13,11 +13,14 @@ Safety rules:
   - Closes DB connection before writing the .prom file
 """
 
+import hashlib
+import json
 import os
 import socket
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import time
 from shutil import disk_usage
 
@@ -29,6 +32,10 @@ DB_PATH       = "/opt/fathom-vault-sync/nas/fathom.db"
 STALE_DB_PATH = "/opt/fathom-vault-sync/meeting_transcript_repository-master/fathom.db"
 PROM_PATH     = "/var/lib/node_exporter/textfile_collector/fathom_health.prom"
 PROM_DIR      = os.path.dirname(PROM_PATH)
+
+STATE_DIR       = "/var/lib/fathom-monitoring"
+STATE_PATH      = os.path.join(STATE_DIR, "fathom_db_state.json")
+WAZUH_EVENT_LOG = os.path.join(STATE_DIR, "fathom_db_events.log")
 
 FLASK_HOST    = "127.0.0.1"
 FLASK_PORT    = 5000
@@ -101,7 +108,124 @@ def disk_used_percent(path, timeout=10):
 
 
 # ---------------------------------------------------------------------------
-# Main
+# State persistence
+# ---------------------------------------------------------------------------
+
+def load_state():
+    """Load previous DB state from STATE_PATH. Returns {} on any error."""
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(state):
+    """Atomically write state dict to STATE_PATH."""
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=STATE_DIR, suffix=".tmp",
+            delete=False, encoding="utf-8"
+        ) as tmp:
+            json.dump(state, tmp)
+            tmp_path = tmp.name
+        os.replace(tmp_path, STATE_PATH)
+    except Exception:
+        pass  # state loss is non-fatal
+
+
+# ---------------------------------------------------------------------------
+# DB fingerprinting
+# ---------------------------------------------------------------------------
+
+CHUNK_SIZE = 64 * 1024  # 64 KB
+
+
+def fingerprint_db(path):
+    """
+    Return a partial SHA-256 hex digest of the DB file (first + last 64 KB).
+    Fast enough to run every 5 minutes on a multi-GB file.
+    Returns None on error.
+    """
+    try:
+        h = hashlib.sha256()
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            # First 64 KB
+            h.update(f.read(CHUNK_SIZE))
+            # Last 64 KB (if file is large enough to have a distinct tail)
+            if size > CHUNK_SIZE:
+                f.seek(max(0, size - CHUNK_SIZE))
+                h.update(f.read(CHUNK_SIZE))
+        return h.hexdigest()
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# SQLite integrity check (with timeout)
+# ---------------------------------------------------------------------------
+
+def check_integrity(db_path, timeout=20):
+    """
+    Run PRAGMA integrity_check on db_path in a thread with a timeout.
+    Returns 1 if 'ok', 0 on failure or timeout, -1 on connection error.
+    """
+    result = [-1]  # mutable container for thread result
+
+    def _run():
+        conn = None
+        try:
+            conn = sqlite3.connect(
+                f"file:{db_path}?mode=ro", uri=True, timeout=5.0
+            )
+            conn.execute("PRAGMA query_only = ON")
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+            result[0] = 1 if (row and row[0] == "ok") else 0
+        except Exception:
+            result[0] = 0
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        # Thread still blocked — integrity check timed out
+        return 0
+    return result[0]
+
+
+# ---------------------------------------------------------------------------
+# Wazuh event emission
+# ---------------------------------------------------------------------------
+
+def emit_wazuh_event(event_type, details):
+    """
+    Append a JSON event line to WAZUH_EVENT_LOG (NDJSON).
+    Wazuh reads this file as a syslog localfile and forwards the JSON.
+    """
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        event = {
+            "timestamp": int(time.time()),
+            "source": "fathom_health_exporter",
+            "event_type": event_type,
+        }
+        event.update(details)
+        with open(WAZUH_EVENT_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception:
+        pass  # event loss is non-fatal
+
+
+# ---------------------------------------------------------------------------
+# Main collector
 # ---------------------------------------------------------------------------
 
 def collect():
@@ -120,19 +244,36 @@ def collect():
                     "1 if project-root fathom.db exists (should not)")
     lines.append(metric("fathom_stale_local_db_exists", stale_exists))
 
+    # ------------------------------------------------------------------ Load previous state
+    prev = load_state()
+    new_state = {}
+
     # ------------------------------------------------------------------ DB metrics
     # Sentinel values written if DB is unavailable
-    db_guard      = 0
-    db_size_bytes = -1
-    total         = -1
-    has_video     = -1
+    db_guard       = 0
+    db_size_bytes  = -1
+    total          = -1
+    has_video      = -1
     has_transcript = -1
-    has_summary   = -1
-    video_pct     = -1.0
+    has_summary    = -1
+    video_pct      = -1.0
     transcript_pct = -1.0
-    summary_pct   = -1.0
-    sync_age      = -1
-    sync_success  = 0
+    summary_pct    = -1.0
+    sync_age       = -1
+    sync_success   = 0
+
+    # Delta / integrity sentinels (-1 = unknown/unavailable)
+    db_prev_size_bytes     = int(prev.get("db_size_bytes", -1))
+    db_size_delta          = -1
+    db_mtime               = -1
+    db_inode_changed       = -1
+    db_checksum_changed    = -1
+    total_delta            = -1
+    has_video_delta        = -1
+    has_transcript_delta   = -1
+    has_summary_delta      = -1
+    sqlite_integrity_ok    = -1
+    regression_detected    = 0
 
     if nas_mounted:
         # Verify DB path points to NAS (live guard)
@@ -152,7 +293,70 @@ def collect():
             db_guard = 0
             success = 1  # path check error isn't fatal for other metrics
 
-        # Query DB (read-only)
+        # ---- File-level fingerprinting (runs regardless of db_guard) --------
+        if os.path.isfile(DB_PATH):
+            try:
+                stat = os.stat(DB_PATH)
+                db_mtime       = int(stat.st_mtime)
+                current_inode  = stat.st_ino
+                prev_inode     = prev.get("db_inode")
+                db_inode_changed = 0 if (prev_inode is None or prev_inode == current_inode) else 1
+
+                current_checksum = fingerprint_db(DB_PATH)
+                prev_checksum    = prev.get("db_checksum")
+                if current_checksum is None:
+                    db_checksum_changed = -1
+                elif prev_checksum is None:
+                    db_checksum_changed = 0  # no baseline yet
+                else:
+                    db_checksum_changed = 0 if prev_checksum == current_checksum else 1
+
+                # Size delta
+                if db_prev_size_bytes >= 0 and db_size_bytes >= 0:
+                    db_size_delta = db_size_bytes - db_prev_size_bytes
+
+                # Persist fingerprint state
+                new_state["db_size_bytes"]  = db_size_bytes
+                new_state["db_mtime"]       = db_mtime
+                new_state["db_inode"]       = current_inode
+                new_state["db_checksum"]    = current_checksum
+
+                # Emit Wazuh events on fingerprint regressions
+                if db_inode_changed == 1:
+                    regression_detected = 1
+                    emit_wazuh_event("db_inode_changed", {
+                        "prev_inode": prev_inode,
+                        "current_inode": current_inode,
+                        "db_path": DB_PATH,
+                    })
+                if db_checksum_changed == 1:
+                    regression_detected = 1
+                    emit_wazuh_event("db_checksum_changed", {
+                        "prev_checksum": prev_checksum,
+                        "current_checksum": current_checksum,
+                        "db_path": DB_PATH,
+                    })
+                if db_size_delta != -1 and db_size_delta < 0:
+                    regression_detected = 1
+                    emit_wazuh_event("db_size_decreased", {
+                        "prev_size_bytes": db_prev_size_bytes,
+                        "current_size_bytes": db_size_bytes,
+                        "delta_bytes": db_size_delta,
+                        "db_path": DB_PATH,
+                    })
+            except Exception:
+                pass  # fingerprint failure is non-fatal
+
+        # ---- SQLite integrity check ------------------------------------------
+        if db_guard == 1:
+            sqlite_integrity_ok = check_integrity(DB_PATH, timeout=20)
+            if sqlite_integrity_ok == 0:
+                regression_detected = 1
+                emit_wazuh_event("db_integrity_check_failed", {
+                    "db_path": DB_PATH,
+                })
+
+        # ---- Query DB (read-only) --------------------------------------------
         if db_guard == 1:
             conn = None
             try:
@@ -173,6 +377,54 @@ def collect():
                     video_pct      = round(has_video      / total * 100, 1)
                     transcript_pct = round(has_transcript / total * 100, 1)
                     summary_pct    = round(has_summary    / total * 100, 1)
+
+                    # Compute deltas against previous state
+                    prev_total         = prev.get("db_total_meetings")
+                    prev_has_video     = prev.get("db_has_video")
+                    prev_has_transcript = prev.get("db_has_transcript")
+                    prev_has_summary   = prev.get("db_has_summary")
+
+                    if prev_total is not None:
+                        total_delta        = total          - int(prev_total)
+                        has_video_delta    = has_video      - int(prev_has_video or 0)
+                        has_transcript_delta = has_transcript - int(prev_has_transcript or 0)
+                        has_summary_delta  = has_summary    - int(prev_has_summary or 0)
+
+                        # Emit Wazuh events on count regressions
+                        if total_delta < 0:
+                            regression_detected = 1
+                            emit_wazuh_event("db_meeting_count_decreased", {
+                                "prev_total": int(prev_total),
+                                "current_total": total,
+                                "delta": total_delta,
+                            })
+                        if has_video_delta < 0:
+                            regression_detected = 1
+                            emit_wazuh_event("db_video_count_decreased", {
+                                "prev_has_video": int(prev_has_video or 0),
+                                "current_has_video": has_video,
+                                "delta": has_video_delta,
+                            })
+                        if has_transcript_delta < 0:
+                            regression_detected = 1
+                            emit_wazuh_event("db_transcript_count_decreased", {
+                                "prev_has_transcript": int(prev_has_transcript or 0),
+                                "current_has_transcript": has_transcript,
+                                "delta": has_transcript_delta,
+                            })
+                        if has_summary_delta < 0:
+                            regression_detected = 1
+                            emit_wazuh_event("db_summary_count_decreased", {
+                                "prev_has_summary": int(prev_has_summary or 0),
+                                "current_has_summary": has_summary,
+                                "delta": has_summary_delta,
+                            })
+
+                    # Persist meeting counts for next run
+                    new_state["db_total_meetings"]  = total
+                    new_state["db_has_video"]        = has_video
+                    new_state["db_has_transcript"]   = has_transcript
+                    new_state["db_has_summary"]      = has_summary
 
                 # Latest sync age
                 sync_row = conn.execute(
@@ -209,6 +461,11 @@ def collect():
         # NAS not mounted — no DB available
         success = 0
 
+    # Persist state for next run
+    if new_state:
+        save_state(new_state)
+
+    # ------------------------------------------------------------------ Emit metrics
     lines += header("fathom_db_live_guard_pass",
                     "1 if live DB guard confirms correct production DB")
     lines.append(metric("fathom_db_live_guard_pass", db_guard))
@@ -217,19 +474,63 @@ def collect():
                     "Size of the live production DB file in bytes")
     lines.append(metric("fathom_db_size_bytes", db_size_bytes))
 
+    lines += header("fathom_db_previous_size_bytes",
+                    "DB size from previous exporter run (-1 if no baseline)")
+    lines.append(metric("fathom_db_previous_size_bytes", db_prev_size_bytes))
+
+    lines += header("fathom_db_size_delta_bytes",
+                    "DB size change since last run in bytes (-1 if unknown)")
+    lines.append(metric("fathom_db_size_delta_bytes", db_size_delta))
+
+    lines += header("fathom_db_mtime_unixtime",
+                    "DB file modification time as Unix timestamp (-1 if unavailable)")
+    lines.append(metric("fathom_db_mtime_unixtime", db_mtime))
+
+    lines += header("fathom_db_inode_changed",
+                    "1 if DB inode changed since last run (possible file swap), -1 if unknown")
+    lines.append(metric("fathom_db_inode_changed", db_inode_changed))
+
+    lines += header("fathom_db_checksum_changed",
+                    "1 if DB partial checksum changed since last run, -1 if unknown")
+    lines.append(metric("fathom_db_checksum_changed", db_checksum_changed))
+
+    lines += header("fathom_db_sqlite_integrity_ok",
+                    "1 if PRAGMA integrity_check returned ok, 0 on failure, -1 if not run")
+    lines.append(metric("fathom_db_sqlite_integrity_ok", sqlite_integrity_ok))
+
+    lines += header("fathom_db_regression_detected",
+                    "1 if any DB regression event was detected this run")
+    lines.append(metric("fathom_db_regression_detected", regression_detected))
+
     lines += header("fathom_db_total_meetings",
                     "Total rows in the meetings table")
     lines.append(metric("fathom_db_total_meetings", total))
 
+    lines += header("fathom_db_total_meetings_delta",
+                    "Change in total_meetings since last run (-1 if no baseline)")
+    lines.append(metric("fathom_db_total_meetings_delta", total_delta))
+
     lines += header("fathom_db_has_video", "Meetings with has_video=1")
     lines.append(metric("fathom_db_has_video", has_video))
+
+    lines += header("fathom_db_has_video_delta",
+                    "Change in has_video count since last run (-1 if no baseline)")
+    lines.append(metric("fathom_db_has_video_delta", has_video_delta))
 
     lines += header("fathom_db_has_transcript",
                     "Meetings with has_transcript=1")
     lines.append(metric("fathom_db_has_transcript", has_transcript))
 
+    lines += header("fathom_db_has_transcript_delta",
+                    "Change in has_transcript count since last run (-1 if no baseline)")
+    lines.append(metric("fathom_db_has_transcript_delta", has_transcript_delta))
+
     lines += header("fathom_db_has_summary", "Meetings with has_summary=1")
     lines.append(metric("fathom_db_has_summary", has_summary))
+
+    lines += header("fathom_db_has_summary_delta",
+                    "Change in has_summary count since last run (-1 if no baseline)")
+    lines.append(metric("fathom_db_has_summary_delta", has_summary_delta))
 
     lines += header("fathom_video_coverage_percent",
                     "Video coverage as a percentage of total meetings")

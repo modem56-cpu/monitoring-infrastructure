@@ -44,6 +44,12 @@
   <location>/opt/fathom-vault-sync/nas/app.log</location>
 </localfile>
 
+<!-- DB integrity event log — JSON events from fathom_health_exporter.py -->
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/lib/fathom-monitoring/fathom_db_events.log</location>
+</localfile>
+
 <!-- File Integrity Monitoring — stale DB, .env, accounts file -->
 <syscheck>
   <!-- Stale project-root DB — alert on creation or modification -->
