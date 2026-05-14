@@ -1,7 +1,7 @@
 # Yokly / Agapay — Monitoring Platform: Restoration & Operations Guide
 
 **Classification:** Internal IT — Handoff & Recovery Package  
-**Last Updated:** 2026-04-26  
+**Last Updated:** 2026-05-14  
 **Maintained by:** Brian Monte (brian.monte@yokly.gives)  
 **Platform Admin:** IT Admin / System Owner  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
@@ -55,7 +55,7 @@ A fully on-premise infrastructure monitoring, security, and observability platfo
 
 - **Yokly** — primary org, domain `yokly.gives`
 - **Agapay** — sister org, domain `agapay.gives`
-- **99 active employees** across both orgs (as of April 2026)
+- **98 active employees** across both orgs (as of May 2026)
 
 ### Scope of Monitoring
 
@@ -66,9 +66,12 @@ A fully on-premise infrastructure monitoring, security, and observability platfo
 | Network | 90 LAN devices, 4 VLANs, ARP conflicts, new devices | UDM ARP collector v2 |
 | Network flows | IPFIX/NetFlow/sFlow from UDM Pro | Akvorado → ClickHouse |
 | Security | Log events, auth failures, priv escalation, file integrity | Wazuh SIEM |
-| SaaS | Google Workspace: users, storage, Drive, admin events | gworkspace-collector v2 |
-| HR/IT alignment | Employee roster vs GW active accounts | employee-gworkspace-reconcile.py |
+| SaaS | Google Workspace: users, storage, Drive, admin events | gworkspace-collector v3 |
+| HR/IT alignment | Employee roster vs GW active accounts (4-category classification) | employee-gworkspace-reconcile.py |
+| Service account tracking | 17 approved shared/system GW accounts classified separately | approved_service_accounts.json |
+| Drive lifecycle | Shared Drive creation/deletion auto-detected and tracked | shared_drive_state.json (auto-updated 5 min) |
 | Alerting | Prometheus rules → Alertmanager email; Wazuh native | alertmanager.yml + Gmail SMTP |
+| AI/leadership reports | monitoring_report.json includes 7 Wazuh SIEM sections | generate-report.py (every 5 min) |
 
 ---
 
@@ -101,8 +104,8 @@ Role:     Monitoring hub + SIEM manager + NetFlow pipeline
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │  Prometheus  │  │   Grafana    │  │ Alertmanager │  │  node-exporter│  │
 │  │  :9090(lo)   │  │  :3000(LAN)  │  │  :9093(lo)   │  │  internal     │  │
-│  │  23 targets  │  │  14 dashbds  │  │  Gmail SMTP  │  │  + textfile/  │  │
-│  │  90d retention│  │  2 datasrcs │  │  (needs pwd) │  │               │  │
+│  │  23 targets  │  │  16 dashbds  │  │  Gmail SMTP  │  │  + textfile/  │  │
+│  │  30d retention│  │  2 datasrcs │  │  (needs pwd) │  │               │  │
 │  └──────┬───────┘  └──────┬───────┘  └──────────────┘  └───────────────┘  │
 │         │ scrape 15s       │ query                                           │
 │  ┌──────┴───────┐  ┌──────┴───────┐  ┌──────────────┐  ┌───────────────┐  │
@@ -152,7 +155,7 @@ Role:     Monitoring hub + SIEM manager + NetFlow pipeline
 │movement-strat │  │  UDM Pro      │  │Google Workspace│
 │31.170.165.94  │  │192.168.10.1   │  │ cloud SaaS    │
 │VPN:10.253.2.22│  │ SNMP :161     │  │ API (SA key)  │
-│SSH pull (wg2) │  │ syslog→Wazuh  │  │ 99 users      │
+│SSH pull (wg2) │  │ syslog→Wazuh  │  │ 98 users      │
 │ Wazuh 003     │  │ ARP→collector │  │ Yokly+Agapay  │
 └───────────────┘  └───────────────┘  └───────────────┘
 ```
@@ -164,23 +167,27 @@ COLLECTION                    STORAGE                   VISUALIZATION
 ──────────                    ───────                   ─────────────
 
 node_exporter ──────────────► Prometheus TSDB ────────► Grafana
-textfile/*.prom (10 files) ──►  (prometheus_data vol)   (14 dashboards)
-gworkspace-collector ────────►                          ────────────────
-employee-reconcile ──────────►                          Security Ops Center
-network-devices (ARP) ───────►                          Employee Reconcile
-sys-sample-prom.sh ──────────►                          Export Reports
-vps SSH pull ────────────────►                          + 11 more
+textfile/*.prom (10 files) ──►  (prometheus_data vol)   (16 dashboards)
+gworkspace-collector v3 ────►   30d retention           ────────────────
+  (5min: users, drives,    ──►                          Security Ops Center
+   lifecycle state tracking)                            Employee Reconcile
+employee-reconcile ──────────►                          Google Workspace
+  (4-category classification)►                          Export Reports
+network-devices (ARP) ───────►                          + 12 more
+sys-sample-prom.sh ──────────►
+vps SSH pull ────────────────►
 
 UDM Pro NetFlow/IPFIX ───────► Kafka ──► ClickHouse ──► Akvorado Console
                                                          (:8082)
 
-Wazuh agents (6) ────────────► Wazuh Indexer ──────────► Grafana
+Wazuh agents (5 active) ────► Wazuh Indexer ──────────► Grafana
 Prom-to-Wazuh bridge ────────►  (OpenSearch 9200)        (Security Ops Center
 Employee reconcile log ──────►  wazuh-alerts-4.x-*       Elasticsearch DS)
 Network inventory log ────────►
 
 All above ───────────────────► monitoring_report.json ──► AI agent ingestion
-                                (:8088, every 5min)        (embedded dashboards)
+                                (:8088, every 5min)        (7 Wazuh sections +
+                                                            GW lifecycle data)
 ```
 
 ### Grafana Datasources
@@ -192,15 +199,17 @@ All above ───────────────────► monitorin
 
 > **Note:** Wazuh Indexer uses 172.18.0.1 (Docker bridge gateway IP), not localhost. The iptables rule `iptables -I INPUT 1 -s 172.18.0.0/16 -p tcp --dport 9200 -j ACCEPT` must be present. See fix-p3-root.sh to persist.
 
-### Grafana Dashboards (14, as of 2026-04-26)
+> **CRITICAL — Grafana dashboard API push:** Template variables `${DS_PROMETHEUS}` and `${DS_WAZUH_INDEXER}` in dashboard JSON are resolved **only during Grafana UI import**, never by the REST API. When pushing dashboards via API, always substitute before posting: `${DS_PROMETHEUS}` → `afiwke54zcjcwe`, `${DS_WAZUH_INDEXER}` → `ffk7yn7hg1k3ka`. If panels show "No data" after API push, this is the cause. The Phase 6 restore script handles this automatically.
+
+### Grafana Dashboards (16, as of 2026-05-14)
 
 | UID | Title | Datasource | Key Panels |
 |---|---|---|---|
 | `security-ops-center` | Security Operations Center | Both | Prometheus alerts + Wazuh live events — PRIMARY SOC VIEW |
-| `export-reports` | Export Reports | Both | All tables exportable CSV, JSON download link |
-| `employee-reconcile` | Employee ↔ GWorkspace | Prometheus | Orphaned accounts, missing accounts, admin status |
+| `export-reports` | Export Reports | Both | All tables exportable CSV, JSON download link; includes GW Shared Drive Lifecycle section |
+| `employee-reconcile` | Employee ↔ GWorkspace | Prometheus | 4-category classification: matched/service_account/admin/orphan |
 | `fleet-overview` | Fleet Overview | Prometheus | All nodes health summary |
-| `google-workspace` | Google Workspace | Prometheus | Users, storage, Drive, admin events |
+| `google-workspace` | Google Workspace | Prometheus | Users, storage, Drive, admin events; sharing policy breakdown |
 | `network-inventory` | Network Inventory & MAC Map | Prometheus | ARP devices, new devices, ARP conflicts |
 | `docker-containers` | Docker Containers & APIs | Prometheus | Container health, API probes |
 | `akvorado` | Akvorado Flow Pipeline | Prometheus | Flow rates, Kafka, ClickHouse |
@@ -210,6 +219,10 @@ All above ───────────────────► monitorin
 | `node-exporter-full` | Node Exporter Full | Prometheus | Deep Linux per-host |
 | `windows-exporter` | Windows Exporter | Prometheus | Windows VM metrics |
 | `vps-movement-strategy` | Movement Strategy (VPS) | Prometheus | External VPS via SSH pull |
+| `shared-drives` | Shared Drives Audit | Prometheus | Drive approval status, external members, violations |
+| `wazuh-siem` | Wazuh SIEM Overview | Wazuh Indexer | Alerts by level/agent/rule, MITRE ATT&CK, FIM, SCA scores |
+
+> **CRITICAL — Dashboard API import:** `${DS_PROMETHEUS}` and `${DS_WAZUH_INDEXER}` are Grafana UI import-time template variables — they are **never resolved by the REST API**. Always substitute with actual UIDs before pushing via API: `${DS_PROMETHEUS}` → `afiwke54zcjcwe`, `${DS_WAZUH_INDEXER}` → `ffk7yn7hg1k3ka`. See Phase 6 restore procedure.
 
 ---
 
@@ -220,22 +233,33 @@ All above ───────────────────► monitorin
 ```
 Volume:    prometheus_data (Docker named volume)
 Mount:     /prometheus (inside container)
-Retention: 90 days
+Retention: 30 days  ← (docker-compose.yml: --storage.tsdb.retention.time=30d)
 Access:    http://127.0.0.1:9090
 
 Key metric namespaces:
-  node_*                 — node_exporter (CPU, memory, disk, network, filesystem)
-  windows_*              — windows_exporter
-  sys_sample_*           — custom: CPU/mem/net/disk summary per host
-  sys_topproc_*          — custom: top processes (CPU, RSS, command)
-  tower_*                — custom: Unraid, SSH sessions, Docker list, extras
-  gworkspace_*           — Google Workspace (users, storage, events, sharing)
-  employee_reconcile_*   — HR/GW reconciliation (orphaned, missing, authorized)
-  network_device_*       — ARP network inventory (per device, per VLAN)
-  network_inventory_*    — ARP collector state (baseline, discovered, conflicts)
-  akvorado_*             — NetFlow pipeline health
-  ALERTS{alertstate=}    — Live Prometheus alert state
-  up{}                   — Scrape target health (1=up, 0=down)
+  node_*                        — node_exporter (CPU, memory, disk, network, filesystem)
+  windows_*                     — windows_exporter
+  sys_sample_*                  — custom: CPU/mem/net/disk summary per host
+  sys_topproc_*                 — custom: top processes (CPU, RSS, command)
+  tower_*                       — custom: Unraid, SSH sessions, Docker list, extras
+  gworkspace_*                  — Google Workspace (users, storage, events, sharing)
+    gworkspace_shared_drives_total              — live drive count
+    gworkspace_approved_external_shared_drives_total
+    gworkspace_unapproved_external_shared_drives_total
+    gworkspace_deleted_shared_drives_total      — auto-detected deletions
+    gworkspace_deleted_shared_drive_info        — per-deleted-drive label metric
+    gworkspace_external_sharing_policy_*        — human-account policy breakdown
+  employee_reconcile_*          — HR/GW reconciliation (4-category)
+    employee_reconcile_matched_employees_total
+    employee_reconcile_approved_service_accounts_total
+    employee_reconcile_authorized_admins_total
+    employee_reconcile_true_orphans_total
+    employee_reconcile_missing_gw_accounts_total
+  network_device_*              — ARP network inventory (per device, per VLAN)
+  network_inventory_*           — ARP collector state (baseline, discovered, conflicts)
+  akvorado_*                    — NetFlow pipeline health
+  ALERTS{alertstate=}           — Live Prometheus alert state
+  up{}                          — Scrape target health (1=up, 0=down)
 ```
 
 ### Wazuh Indexer (OpenSearch 7.10.2)
@@ -300,7 +324,7 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
 /opt/monitoring/data/employees.json
   — Active employee roster from Google Sheet
   — Structure: [{email, name, department, status}]
-  — Updated: daily 08:00 via employees-sheet-sync.timer (pending root deploy)
+  — Updated: daily 06:00 via employees-sheet-sync.timer (installed and active)
   — Manual: sudo bash /opt/monitoring/apply-employees-sync.sh
 
 /opt/monitoring/data/authorized_admins.json
@@ -308,6 +332,24 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
   — Structure: [{email, name, role}]
   — 5 entries: brian.monte, csednie.regasa, josh, markangel, tim@agapay.gives
   — NOTE: requires root deploy (sudo bash /opt/monitoring/fix-p3-root.sh)
+
+/opt/monitoring/approved_service_accounts.json
+  — 17 approved shared/system GW accounts (billing inboxes, AI services, shared logins)
+  — Structure: [{email, type, owner, monitoring_status}]
+  — Used by employee-gworkspace-reconcile.py to classify non-human accounts
+  — Without this file, service accounts appear as false-positive orphans
+
+/opt/monitoring/approved_external_shared_drives.json
+  — 16 approved client-facing Shared Drives authorized for external member access
+  — Structure: [{drive_id, drive_name, client, approved_date, notes}]
+  — Used by gworkspace-collector.py to distinguish approved vs unapproved violations
+
+/opt/monitoring/data/shared_drive_state.json
+  — AUTO-CREATED by gworkspace-collector.py on first run; updated every 5 min
+  — Tracks all known Shared Drives with status (active/deleted), first_seen, last_seen
+  — Structure: {"last_updated": "...", "drives": {"DRIVE_ID": {drive_name, status, deleted_at, ...}}}
+  — Drives absent from Drive API are automatically marked status=deleted with timestamp
+  — Do NOT manually edit — gworkspace-collector.py is the sole writer
 
 /opt/monitoring/data/network_devices.json
   — Live ARP device list for Akvorado enrichment
@@ -323,9 +365,11 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
   — Edit to name unnamed devices; applied within 5 min
 
 /opt/monitoring/dashboards/*.json
-  — Portable Grafana dashboard exports (14 files)
+  — Portable Grafana dashboard exports (16 files)
   — Used by monitoring_report.json AI payload
-  — Contains ${DS_PROMETHEUS} and ${DS_WAZUH_INDEXER} variable substitution
+  — WARNING: ${DS_PROMETHEUS} and ${DS_WAZUH_INDEXER} must be replaced with actual UIDs
+    before REST API push (afiwke54zcjcwe and ffk7yn7hg1k3ka respectively)
+  — The export-reports.json already has UIDs hardcoded (not template vars)
 ```
 
 ---
@@ -337,8 +381,11 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
 ```
                            ┌─ sys-sample-prom.sh (15s) ─────┐
                            ├─ sys-topproc-prom.sh (60s) ─────┤
-                           ├─ gworkspace-collector (5min) ───┤ → textfile_collector/*.prom
+                           ├─ gworkspace-collector v3 (5min)─┤ → textfile_collector/*.prom
+                           │   (users, drives, lifecycle,   ─┤
+                           │    deleted drive detection)     ─┤
                            ├─ employee-gworkspace-reconcile ──┤
+                           │   (4-category classification)  ──┤
                            ├─ udm-arp-collector.py (5min) ───┤
                            ├─ tower-unraid-textfile (5min) ───┤
                            └─ collect_vm_ms_ssh.sh (SSH) ────┘
@@ -348,12 +395,12 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
                                          │
                               Prometheus scrape :9100 (15s)
                                          │
-                                    TSDB storage
+                                    TSDB storage (30d)
                                          │
                               ┌──────────┴──────────┐
                               │                     │
                            Grafana              Alertmanager
-                         (14 dashboards)     (Gmail SMTP — needs pwd)
+                         (16 dashboards)     (Gmail SMTP — needs pwd)
                               │                     │
                          Browser view         Email to brian.monte@yokly.gives
 ```
@@ -405,25 +452,29 @@ HTTP server (:8088)
 Google Sheet (1031 rows, "Employees" tab, Status=Active)
          │
          │ sync-employees-from-sheet.py (SA key, spreadsheets.readonly)
+         │ runs daily 06:00 via employees-sheet-sync.timer
          ▼
-/opt/monitoring/data/employees.json  (99 active employees)
+/opt/monitoring/data/employees.json  (98 active employees)
          │
          │ employee-gworkspace-reconcile.py (every 30min)
          │   reads: employees.json + authorized_admins.json
+         │         + approved_service_accounts.json
          │   calls: GW Directory API (admin.directory.user.readonly)
          ▼
-┌────────────────────────────────────────┐
-│  Detects:                              │
-│  - Orphaned GW accounts (in GW, not   │
-│    in roster) → warning/critical       │
-│  - Missing GW accounts (in roster,    │
-│    not in GW) → info                  │
-│  - Suspended-active mismatch → warning │
-│  - Unauthorized admin (not authorized) │
-│    → critical                          │
-│  - Authorized admin (in auth list)    │
-│    → info (no alert)                   │
-└────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  4-category classification for every GW account:       │
+│                                                        │
+│  matched_employee      — in roster, expected           │
+│  approved_service_acct — in approved_service_accounts  │
+│                          .json (17 accounts)           │
+│  authorized_admin      — in authorized_admins.json     │
+│  true_orphan           — genuinely unknown → alert     │
+│                                                        │
+│  Also detects:                                         │
+│  - Missing GW accounts (in roster, not in GW) → info   │
+│  - Suspended-active mismatch → warning                 │
+│  - Unauthorized admin (not in auth list) → critical    │
+└────────────────────────────────────────────────────────┘
          │                        │
          ▼                        ▼
 employee_reconcile.prom    /var/log/employee-gworkspace-wazuh.log
@@ -432,6 +483,52 @@ employee_reconcile.prom    /var/log/employee-gworkspace-wazuh.log
          ▼                        ▼
 Grafana Employee         Grafana Security Ops Center
 Reconcile dashboard      (Wazuh events panel)
+```
+
+### Shared Drive Lifecycle Workflow
+
+```
+gworkspace-collector.py (every 5 min)
+         │
+         │  1. Queries Drive API → all_drives list
+         │  2. Loads /opt/monitoring/data/shared_drive_state.json
+         │  3. Compares live drive IDs vs saved state:
+         │     - Missing from API → marked status=deleted, deleted_at=now
+         │     - New drives → added to state as status=active
+         │  4. Saves updated state back to shared_drive_state.json
+         │  5. Emits Prometheus metrics:
+         │
+         ▼
+gworkspace_deleted_shared_drives_total     (count)
+gworkspace_deleted_shared_drive_info{...}  (per-drive labels)
+gworkspace_shared_drives_total             (live count)
+gworkspace_approved_external_*             (client drives)
+gworkspace_unapproved_external_*           (violations)
+         │
+         ▼
+Grafana Export Reports → Shared Drive Lifecycle section
+monitoring_report.json → google_workspace.shared_drive_summary
+                       → google_workspace.deleted_shared_drives
+```
+
+### monitoring_report.json Structure (Wazuh sections)
+
+`generate-report.py` runs every 5 min and includes these Wazuh sections sourced directly from Wazuh Indexer (`https://172.18.0.1:9200`):
+
+```
+wazuh_agent_summary      — per-agent status, IP, last heartbeat (from alerts index)
+wazuh_threat_hunting     — 24h totals, level ≥12, auth failures, top rules/agents
+wazuh_mitre_attack       — 24h MITRE ATT&CK tactic/technique breakdown
+wazuh_fim                — File Integrity Monitoring events (added/modified/deleted)
+wazuh_vulnerabilities    — severity breakdown (scanning not yet configured)
+wazuh_sca                — CIS Benchmark scores per agent (60d window, latest per policy)
+wazuh_compliance         — PCI DSS, GDPR, HIPAA, NIST, GPG13 event counts
+
+NOTE: wazuh-monitoring-* docs store agent fields at ROOT level (id, name, ip, status)
+      NOT nested under agent.* — do not use agent.id aggregation on monitoring index.
+NOTE: SCA dedup uses agent_name:policy_id key (NOT agent_id) — agent IDs change on
+      re-enrollment; agent names are stable.
+NOTE: Use track_total_hits: True for any count query — OpenSearch caps at 10,000 without it.
 ```
 
 ---
@@ -539,7 +636,14 @@ REQUIRED BEFORE WAZUH WORKS:
 REQUIRED BEFORE EMPLOYEE RECONCILE WORKS:
   1. SA key at /keys/gam-project-gf5mq-97886701cbdd.json
   2. employees.json at /opt/monitoring/data/employees.json
+     (populated by employees-sheet-sync.timer — runs daily 06:00)
   3. authorized_admins.json at /opt/monitoring/data/authorized_admins.json
+  4. approved_service_accounts.json at /opt/monitoring/approved_service_accounts.json
+     (without this, 17 service accounts appear as false-positive true_orphans)
+
+REQUIRED BEFORE GWORKSPACE DRIVE LIFECYCLE WORKS:
+  1. approved_external_shared_drives.json at /opt/monitoring/approved_external_shared_drives.json
+  2. shared_drive_state.json — auto-created on first gworkspace-collector run, no manual step needed
 
 REQUIRED BEFORE AKVORADO WORKS:
   1. akvorado docker stack up
@@ -624,7 +728,7 @@ Wazuh Indexer admin password        /etc/wazuh-indexer/ (auto-generated)  wazuh-
 Wazuh kibanaserver password         /etc/wazuh-dashboard/ + scripts       wazuh-passwords-tool -u kibanaserver
 Gmail app password (Alertmanager)   alertmanager.yml (REPLACE_ placeholder) Google Account → Security → App passwords
 UDM SNMP community string           prometheus.yml (snmp_configs)         UniFi console → Settings → SNMP
-Grafana admin password              (currently admin:admin — NOT changed)  Grafana UI → Admin profile
+Grafana admin password              (admin:TempPass123 — reset 2026-05-12) Grafana UI → Admin profile
 Wazuh agent enrollment key          /var/ossec/etc/authd.pass             wazuh-authd
 ```
 
@@ -761,7 +865,7 @@ sudo netfilter-persistent save
 ### Phase 6: Import Grafana Dashboards (5 min)
 
 ```bash
-# Import all 14 dashboard JSONs from /opt/monitoring/dashboards/
+# Import all 16 dashboard JSONs from /opt/monitoring/dashboards/
 for f in /opt/monitoring/dashboards/*.json; do
   name=$(basename "$f" .json)
   # Import via Grafana API (replace DS variables)
