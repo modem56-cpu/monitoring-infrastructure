@@ -23,25 +23,57 @@ class ReportHandler(BaseHTTPRequestHandler):
         # Suppress per-request stdout noise; errors still go to stderr
         pass
 
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
+    def _resolve(self, path):
+        """Return (file_path, mime, size, force_download) or raise ValueError."""
+        parsed = urllib.parse.urlparse(path)
         params = urllib.parse.parse_qs(parsed.query)
         force_download = "download" in params
 
-        # Resolve file path, block directory traversal
         rel = parsed.path.lstrip("/") or "index.html"
         file_path = os.path.realpath(os.path.join(SERVE_DIR, rel))
         if not file_path.startswith(os.path.realpath(SERVE_DIR)):
-            self._send_error(403, "Forbidden")
-            return
-
+            raise PermissionError("Forbidden")
         if not os.path.isfile(file_path):
-            self._send_error(404, "Not Found")
-            return
+            raise FileNotFoundError("Not Found")
 
         mime, _ = mimetypes.guess_type(file_path)
         if mime is None:
             mime = "application/octet-stream"
+
+        return file_path, mime, os.path.getsize(file_path), force_download
+
+    def _send_headers(self, file_path, mime, size, force_download):
+        filename = os.path.basename(file_path)
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "no-cache")
+        if force_download:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        else:
+            self.send_header("Content-Disposition", f'inline; filename="{filename}"')
+        self.end_headers()
+
+    def do_HEAD(self):
+        try:
+            file_path, mime, size, force_download = self._resolve(self.path)
+        except PermissionError:
+            self._send_error(403, "Forbidden")
+            return
+        except FileNotFoundError:
+            self._send_error(404, "Not Found")
+            return
+        self._send_headers(file_path, mime, size, force_download)
+
+    def do_GET(self):
+        try:
+            file_path, mime, size, force_download = self._resolve(self.path)
+        except PermissionError:
+            self._send_error(403, "Forbidden")
+            return
+        except FileNotFoundError:
+            self._send_error(404, "Not Found")
+            return
 
         try:
             with open(file_path, "rb") as f:
@@ -50,22 +82,7 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._send_error(500, "Internal Server Error")
             return
 
-        filename = os.path.basename(file_path)
-        self.send_response(200)
-        self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
-        if force_download:
-            self.send_header(
-                "Content-Disposition",
-                f'attachment; filename="{filename}"'
-            )
-        else:
-            self.send_header(
-                "Content-Disposition",
-                f'inline; filename="{filename}"'
-            )
-        self.end_headers()
+        self._send_headers(file_path, mime, len(data), force_download)
         self.wfile.write(data)
 
     def _send_error(self, code, message):
