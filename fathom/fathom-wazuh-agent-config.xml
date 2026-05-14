@@ -1,0 +1,63 @@
+<!--
+  Add this block to /var/ossec/etc/ossec.conf on fathom-server (Wazuh agent).
+  Place inside the existing <ossec_config> root element.
+  After editing, restart the agent: sudo systemctl restart wazuh-agent
+-->
+
+<!-- Fathom journal monitoring — sync service -->
+<localfile>
+  <log_format>journald</log_format>
+  <location>journald</location>
+  <filter>_SYSTEMD_UNIT=fathom-sync.service</filter>
+</localfile>
+
+<!-- Fathom journal monitoring — video download service -->
+<localfile>
+  <log_format>journald</log_format>
+  <location>journald</location>
+  <filter>_SYSTEMD_UNIT=fathom-video.service</filter>
+</localfile>
+
+<!-- Fathom journal monitoring — DB integrity audit service -->
+<localfile>
+  <log_format>journald</log_format>
+  <location>journald</location>
+  <filter>_SYSTEMD_UNIT=fathom-db-integrity-audit.service</filter>
+</localfile>
+
+<!-- Fathom journal monitoring — NAS mount service -->
+<localfile>
+  <log_format>journald</log_format>
+  <location>journald</location>
+  <filter>_SYSTEMD_UNIT=fathom-nas-mount.service</filter>
+</localfile>
+
+<!-- Prometheus textfile — watch for exporter_success=0 -->
+<localfile>
+  <log_format>syslog</log_format>
+  <location>/var/lib/node_exporter/textfile_collector/fathom_health.prom</location>
+</localfile>
+
+<!-- Flask app log -->
+<localfile>
+  <log_format>syslog</log_format>
+  <location>/opt/fathom-vault-sync/nas/app.log</location>
+</localfile>
+
+<!-- File Integrity Monitoring — stale DB, .env, accounts file -->
+<syscheck>
+  <!-- Stale project-root DB — alert on creation or modification -->
+  <directories check_all="yes" report_changes="no" realtime="yes">
+    /opt/fathom-vault-sync/meeting_transcript_repository-master
+  </directories>
+
+  <!-- NAS audit reports — watch for freshness -->
+  <directories check_all="yes" report_changes="no">
+    /opt/fathom-vault-sync/nas/reports
+  </directories>
+
+  <!-- Ignore expected transient files inside the project dir -->
+  <ignore>/opt/fathom-vault-sync/meeting_transcript_repository-master/__pycache__</ignore>
+  <ignore>/opt/fathom-vault-sync/meeting_transcript_repository-master/.venv</ignore>
+  <ignore>/opt/fathom-vault-sync/meeting_transcript_repository-master/logs</ignore>
+</syscheck>

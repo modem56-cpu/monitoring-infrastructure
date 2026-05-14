@@ -1,0 +1,25 @@
+[Unit]
+Description=Fathom Vault Sync — Prometheus health exporter
+After=network.target fathom-nas-mount.service
+# Does not require the NAS mount — exporter handles NAS-down gracefully
+
+[Service]
+Type=oneshot
+User=fathom-admin
+Group=fathom-admin
+
+# Use project venv Python
+ExecStart=/opt/fathom-vault-sync/meeting_transcript_repository-master/.venv/bin/python3 \
+    /opt/fathom-vault-sync/meeting_transcript_repository-master/scripts/monitoring/fathom_health_exporter.py
+
+# Load only the env vars the exporter needs (read-only: DB path, NAS mount path)
+# Do not load full .env if it contains secrets — exporter reads paths at top of script
+# EnvironmentFile=/opt/fathom-vault-sync/meeting_transcript_repository-master/.env
+
+TimeoutStartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fathom-health-exporter
+
+# Always succeed from systemd's perspective — errors are in metric values
+SuccessExitStatus=0 1

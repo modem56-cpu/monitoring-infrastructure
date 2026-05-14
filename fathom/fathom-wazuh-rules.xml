@@ -1,0 +1,243 @@
+<!--
+  Fathom Vault Sync — Wazuh Custom Alert Rules
+  Deploy to: /var/ossec/rules/fathom_rules.xml  (Wazuh manager)
+  After copying, run: /var/ossec/bin/wazuh-logtest to validate, then reload rules.
+
+  Severity mapping:
+    CRITICAL = level 12
+    HIGH     = level 10
+    WARN     = level 7
+    LOW      = level 5
+
+  Sources:
+    - systemd journal (fathom-*.service units via Wazuh journald module)
+    - Prometheus textfile /var/lib/node_exporter/textfile_collector/fathom_health.prom
+    - FIM events (syscheck) for stale DB file and .env
+
+  Rule ID range: 200100–200199 (custom Fathom namespace)
+-->
+
+<group name="fathom,">
+
+  <!-- ================================================================
+       Base decoder anchor — match fathom service journal entries
+       ================================================================ -->
+
+  <!-- 200100: Any fathom service entered failed state (systemd journal) -->
+  <rule id="200100" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom-</match>
+    <match>Failed|failed</match>
+    <description>Fathom service $(program_name) entered failed state</description>
+    <group>fathom,fathom.service.failed,</group>
+  </rule>
+
+  <!-- ================================================================
+       CRITICAL alerts (level 12)
+       ================================================================ -->
+
+  <!-- 200101: NAS not mounted — appears in journal when fathom-nas-mount fails -->
+  <rule id="200101" level="12">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>NAS.*not.*mount|mount.*fail|Transport endpoint is not connected|SSHFS.*error|fathom-nas-mount</match>
+    <description>Fathom NAS mount is not accessible — all sync services affected</description>
+    <group>fathom,fathom.nas.unmounted,</group>
+  </rule>
+
+  <!-- 200102: Live DB guard failed -->
+  <rule id="200102" level="12">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>LIVE DB GUARD.*FAIL|DB guard.*fail|guard.*fail|wrong DB|DB path.*project root</match>
+    <description>Fathom live DB guard failed — risk of wrong database being used</description>
+    <group>fathom,fathom.db.guard.failed,</group>
+  </rule>
+
+  <!-- 200103: Script connected to stale project-root fathom.db -->
+  <rule id="200103" level="12">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>stale local backup|project root.*fathom\.db|DB path resolves to the project root|This is the stale</match>
+    <description>Fathom script connected to the stale project-root fathom.db — NOT the live NAS database</description>
+    <group>fathom,fathom.db.wrong.path,</group>
+  </rule>
+
+  <!-- 200104: Sync timer became inactive (caught by Prometheus bridge) -->
+  <rule id="200104" level="12">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>fathom-sync\.timer.*inactiv|sync timer.*inactiv|fathom_sync_timer_active.*0</match>
+    <description>Fathom sync timer is inactive — metadata sync will stop running</description>
+    <group>fathom,fathom.sync.timer.inactive,</group>
+  </rule>
+
+  <!-- 200105: Sync critically stale — no sync in 12+ hours -->
+  <rule id="200105" level="12">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>sync.*stale.*12h|no sync.*12 hour|sync.*12.*hour.*fail|fathom_latest_sync_age.*critical</match>
+    <description>Fathom sync stale — no successful sync recorded in over 12 hours</description>
+    <group>fathom,fathom.sync.stale.critical,</group>
+  </rule>
+
+  <!-- ================================================================
+       HIGH alerts (level 10)
+       ================================================================ -->
+
+  <!-- 200110: Video timer inactive -->
+  <rule id="200110" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>fathom-video\.timer.*inactiv|video timer.*inactiv|fathom_video_timer_active.*0</match>
+    <description>Fathom video timer is inactive — nightly video downloads will not run</description>
+    <group>fathom,fathom.video.timer.inactive,</group>
+  </rule>
+
+  <!-- 200111: DB too small (fathom.db < 500 MB detected in Prometheus bridge events) -->
+  <rule id="200111" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>DB.*too small|db_size.*below|fathom_db_live_guard_pass.*0|live guard.*fail</match>
+    <description>Fathom live DB size below threshold — may be a backup file, not production DB</description>
+    <group>fathom,fathom.db.too.small,</group>
+  </rule>
+
+  <!-- 200112: Overlapping sync processes detected -->
+  <rule id="200112" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>overlapping.*sync|multiple.*run\.py|fathom_overlapping_sync_processes.*[2-9]|concurrent.*sync</match>
+    <description>Multiple Fathom sync processes running simultaneously — risk of DB locking and data corruption</description>
+    <group>fathom,fathom.overlapping.sync,</group>
+  </rule>
+
+  <!-- 200113: DB locked -->
+  <rule id="200113" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>database is locked|sqlite3\.OperationalError.*locked|SQLITE_BUSY</match>
+    <description>Fathom SQLite database is locked — sync job may be stuck or overlapping</description>
+    <group>fathom,fathom.db.locked,</group>
+  </rule>
+
+  <!-- 200114: Meeting count decreased (Prometheus bridge event) -->
+  <rule id="200114" level="10">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>meeting.*count.*decreas|total_meetings.*decreas|meetings.*deleted|fathom_db_total_meetings.*decreas</match>
+    <description>Fathom total meeting count decreased — possible data loss or wrong DB</description>
+    <group>fathom,fathom.meetings.count.decreased,</group>
+  </rule>
+
+  <!-- 200115: Fathom sync service failed exit -->
+  <rule id="200115" level="10">
+    <if_sid>200100</if_sid>
+    <match>fathom-sync\.service|fathom-video\.service</match>
+    <description>Fathom critical sync/video service failed</description>
+    <group>fathom,fathom.service.failed.critical,</group>
+  </rule>
+
+  <!-- ================================================================
+       WARN alerts (level 7)
+       ================================================================ -->
+
+  <!-- 200120: Sync stale — no sync in 6+ hours -->
+  <rule id="200120" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>sync.*stale.*6h|no sync.*6 hour|fathom_latest_sync_age.*warn|sync.*6.*hour.*ago</match>
+    <description>Fathom sync stale warning — no successful sync in over 6 hours</description>
+    <group>fathom,fathom.sync.stale.warn,</group>
+  </rule>
+
+  <!-- 200121: Flask UI unavailable -->
+  <rule id="200121" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>Flask.*unavail|port 5000.*fail|fathom_flask_port_listening.*0|fathom-sync-ui.*fail</match>
+    <description>Fathom Flask admin UI is unavailable on port 5000</description>
+    <group>fathom,fathom.flask.unavailable,</group>
+  </rule>
+
+  <!-- 200122: Coverage metric dropped (warning level) -->
+  <rule id="200122" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>coverage.*drop|coverage.*decreas|fathom.*coverage.*warn|video.*coverage.*below|transcript.*coverage.*below</match>
+    <description>Fathom coverage metric dropped — video, transcript, or summary coverage decreased</description>
+    <group>fathom,fathom.coverage.dropped.warn,</group>
+  </rule>
+
+  <!-- 200123: Root disk warning (85%) -->
+  <rule id="200123" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>disk.*warn|root.*disk.*8[5-9]|fathom_root_disk_used_percent.*8[5-9]</match>
+    <description>Fathom server root disk usage above 85% — DB growth will eventually exhaust disk</description>
+    <group>fathom,fathom.disk.warn,</group>
+  </rule>
+
+  <!-- 200124: Audit report stale -->
+  <rule id="200124" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom</match>
+    <match>audit.*report.*stale|integrity.*report.*old|db_integrity_latest.*stale|audit.*25.*hour</match>
+    <description>Fathom DB integrity audit report not updated in 25+ hours</description>
+    <group>fathom,fathom.audit.report.stale,</group>
+  </rule>
+
+  <!-- ================================================================
+       LOW alerts (level 5)
+       ================================================================ -->
+
+  <!-- 200130: Audit service non-critical failure -->
+  <rule id="200130" level="5">
+    <if_sid>200100</if_sid>
+    <match>fathom-db-integrity-audit</match>
+    <description>Fathom DB integrity audit service failed (informational — audit only, no data risk)</description>
+    <group>fathom,fathom.audit.service.failed,</group>
+  </rule>
+
+  <!-- ================================================================
+       FIM-based rules (file integrity events from syscheck)
+       ================================================================ -->
+
+  <!-- 200140: Stale local fathom.db file detected by FIM -->
+  <rule id="200140" level="10">
+    <if_group>syscheck</if_group>
+    <match>fathom\.db</match>
+    <field name="file">/opt/fathom-vault-sync/meeting_transcript_repository-master/fathom.db</field>
+    <description>FIM: Stale project-root fathom.db detected — this file must not be used in production</description>
+    <group>fathom,fathom.db.stale.local.exists,syscheck,</group>
+  </rule>
+
+  <!-- 200141: .env file modified unexpectedly -->
+  <rule id="200141" level="10">
+    <if_group>syscheck</if_group>
+    <field name="file">/opt/fathom-vault-sync/meeting_transcript_repository-master/.env</field>
+    <description>FIM: Fathom .env configuration file modified — verify intentional change</description>
+    <group>fathom,fathom.env.modified,syscheck,</group>
+  </rule>
+
+  <!-- 200142: accounts.json.enc tampered -->
+  <rule id="200142" level="12">
+    <if_group>syscheck</if_group>
+    <field name="file">/opt/fathom-vault-sync/meeting_transcript_repository-master/accounts.json.enc</field>
+    <description>FIM: Fathom accounts.json.enc modified — credential file tamper detected</description>
+    <group>fathom,fathom.accounts.tampered,syscheck,</group>
+  </rule>
+
+  <!-- ================================================================
+       Prometheus bridge pattern matching (if Wazuh scrapes .prom file)
+       ================================================================ -->
+
+  <!-- 200150: Exporter itself failed to run -->
+  <rule id="200150" level="7">
+    <if_sid>1002</if_sid>
+    <match>fathom_exporter_success 0</match>
+    <description>Fathom health exporter reported failure — one or more checks could not complete</description>
+    <group>fathom,fathom.exporter.failed,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,12 @@
+[Unit]
+Description=Fathom Vault Sync — run health exporter every 5 minutes
+Requires=fathom-health-exporter.service
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=30
+Persistent=false
+Unit=fathom-health-exporter.service
+
+[Install]
+WantedBy=timers.target
