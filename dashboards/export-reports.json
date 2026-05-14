@@ -79,7 +79,7 @@
       },
       "id": 1,
       "options": {
-        "content": "<div style=\"background:#1a1d2e;padding:16px 20px;border-radius:6px;border-left:4px solid #5794f2;\">\n<h2 style=\"margin:0 0 8px;color:#e0e0e0;\">Yokly / Agapay &mdash; Alert Report</h2>\n<p style=\"margin:0;color:#aaa;font-size:13px;\">\nAll tables below are <strong>exportable as CSV</strong> \u2014 hover any table, click the \u22ee menu \u2192 <em>Download CSV</em>.<br>\nFull machine-readable JSON report:\n<a href=\"http://192.168.10.20:8088/monitoring_report.json\" target=\"_blank\" style=\"color:#5794f2;font-weight:bold;\">monitoring_report.json \u2197</a>\n&nbsp;|&nbsp;\n<a href=\"http://192.168.10.20:8088/monitoring_report.json\" download=\"monitoring_report.json\" style=\"color:#73bf69;font-weight:bold;\">\u2b07 Download JSON</a>\n</p>\n</div>",
+        "content": "<div style=\"background:#1a1d2e;padding:16px 20px;border-radius:6px;border-left:4px solid #5794f2;\">\n<h2 style=\"margin:0 0 8px;color:#e0e0e0;\">Yokly / Agapay &mdash; Alert Report</h2>\n<p style=\"margin:0;color:#aaa;font-size:13px;\">\nAll tables below are <strong>exportable as CSV</strong> \u2014 hover any table, click the \u22ee menu \u2192 <em>Download CSV</em>.<br>\nFull machine-readable JSON report:\n<a href=\"http://192.168.10.20:8088/monitoring_report.json\" target=\"_blank\" style=\"color:#5794f2;font-weight:bold;\">View monitoring_report.json \u2197</a>\n&nbsp;|&nbsp;\n<a href=\"http://192.168.10.20:8088/monitoring_report.json?download=1\" download=\"monitoring_report.json\" target=\"_blank\" style=\"color:#73bf69;font-weight:bold;\">\u2b07 Download JSON</a>\n</p>\n</div>",
         "mode": "html"
       },
       "title": "Alert Report Export",
