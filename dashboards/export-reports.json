@@ -3297,12 +3297,40 @@
       ]
     },
     {
+      "id": 56,
+      "type": "row",
+      "title": "Akvorado \u2014 Flow Analytics",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 121
+      }
+    },
+    {
+      "id": 57,
+      "type": "text",
+      "title": "Akvorado \u2014 Top 30 Traffic Flows (exportable JSON)",
+      "description": "Top 30 network flows by max bps from the last 6 hours. Sourced from ClickHouse (default.flows table) via generate-report.py. Fields: Src/Dst AS, Addr, Port, Country, Net Tenant, Net Name, Prefix, Packet Size Bucket, Interface Speed, Max/Avg/P95/Last bps.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 122
+      },
+      "options": {
+        "mode": "html",
+        "content": "<div style=\"background:#1a1d2e;padding:16px 20px;border-radius:6px;border-left:4px solid #f2a900;\">\n<h3 style=\"margin:0 0 10px;color:#e0e0e0;\">Akvorado &mdash; Top 30 Traffic Flows</h3>\n<p style=\"margin:0 0 10px;color:#aaa;\">Top 30 flows by <strong>max bps</strong> over the last <strong>6 hours</strong>, sourced from ClickHouse <code>default.flows</code> table via Akvorado NetFlow pipeline.</p>\n<table style=\"width:100%;border-collapse:collapse;font-size:12px;color:#ccc;\">\n  <tr>\n    <td style=\"padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;\">Data source</td>\n    <td style=\"padding:4px 0;\">ClickHouse &mdash; <code>default.flows</code> (raw NetFlow, 5-min bucketed aggregation)</td>\n  </tr>\n  <tr>\n    <td style=\"padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;\">Time window</td>\n    <td style=\"padding:4px 0;\">Last 6 hours</td>\n  </tr>\n  <tr>\n    <td style=\"padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;\">Sort field</td>\n    <td style=\"padding:4px 0;\">max_bps (descending)</td>\n  </tr>\n  <tr>\n    <td style=\"padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;\">Fields</td>\n    <td style=\"padding:4px 0;\">rank, src_as, src_addr, src_port, src_country, src_net_tenant, src_net_name, src_net_prefix, dst_addr, dst_port, dst_country, dst_net_tenant, dst_net_name, dst_net_prefix, dst_as, packet_size_bucket, in_if_speed, out_if_speed, max_bps, average_bps, p95_bps, last_bps, max_mbps, average_mbps, p95_mbps</td>\n  </tr>\n  <tr>\n    <td style=\"padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;\">Download</td>\n    <td style=\"padding:4px 0;\">\n      <a href=\"http://192.168.10.20:8088/monitoring_report.json\" target=\"_blank\" style=\"color:#5794f2;\">monitoring_report.json</a>\n      &mdash; see <code>.akvorado.top_flows[]</code>\n    </td>\n  </tr>\n</table>\n<p style=\"margin:12px 0 0;color:#888;font-size:11px;\">Note: A Grafana table panel requires a ClickHouse or JSON datasource plugin. Install <strong>grafana-clickhouse-datasource</strong> or <strong>yesoreyeram-infinity-datasource</strong> to render this as a live table with CSV export.</p>\n</div>"
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 129
       },
       "id": 31,
       "panels": [],
@@ -3315,7 +3343,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 122
+        "y": 130
       },
       "id": 32,
       "options": {

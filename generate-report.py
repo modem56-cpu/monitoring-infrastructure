@@ -10,6 +10,7 @@ Usage:
 import json, urllib.parse, urllib.request, datetime, os, sys, ssl, base64
 
 PROM = os.environ.get("PROM_URL", "http://127.0.0.1:9090")
+CLICKHOUSE_URL = os.environ.get("CLICKHOUSE_URL", "http://247.16.14.11:8123/")
 
 def pq(query):
     url = f"{PROM}/api/v1/query?" + urllib.parse.urlencode({"query": query})
@@ -208,6 +209,136 @@ report["udm_pro"] = {
     "interfaces": udm,
 }
 
+# === Akvorado Top Flows ===
+
+def get_akvorado_top_flows(limit=30, window_hours=6):
+    """
+    Query ClickHouse for top traffic flows recorded by Akvorado.
+    Uses flows_5m-bucketed aggregation of the raw flows table.
+    Returns (list_of_flows, error_string_or_None).
+    """
+    query = """\
+WITH flow_buckets AS (
+    SELECT
+        toStartOfFiveMinute(TimeReceived) AS bucket,
+        replaceRegexpOne(toString(SrcAddr), '^::ffff:', '') AS src_addr,
+        replaceRegexpOne(toString(DstAddr), '^::ffff:', '') AS dst_addr,
+        SrcAS, DstAS, SrcPort, DstPort, PacketSizeBucket,
+        InIfSpeed, OutIfSpeed, SrcCountry, DstCountry,
+        SrcNetTenant, DstNetTenant, SrcNetName, DstNetName,
+        SrcNetPrefix, DstNetPrefix,
+        toUInt64(sum(toUInt64(Bytes) * SamplingRate) * 8) / 300 AS bps
+    FROM default.flows
+    WHERE TimeReceived >= now() - INTERVAL {wh} HOUR
+    GROUP BY bucket, src_addr, dst_addr, SrcAS, DstAS, SrcPort, DstPort,
+             PacketSizeBucket, InIfSpeed, OutIfSpeed, SrcCountry, DstCountry,
+             SrcNetTenant, DstNetTenant, SrcNetName, DstNetName,
+             SrcNetPrefix, DstNetPrefix
+)
+SELECT
+    src_addr, dst_addr, SrcAS, DstAS, SrcPort, DstPort, PacketSizeBucket,
+    InIfSpeed, OutIfSpeed, SrcCountry, DstCountry,
+    SrcNetTenant, DstNetTenant, SrcNetName, DstNetName,
+    SrcNetPrefix, DstNetPrefix,
+    dictGetOrDefault('default.asns', 'name', toUInt64(SrcAS), '') AS src_as_name,
+    dictGetOrDefault('default.asns', 'name', toUInt64(DstAS), '') AS dst_as_name,
+    if(dictGetOrDefault('default.tcp', 'name', toUInt64(SrcPort), '') != '',
+       dictGetOrDefault('default.tcp', 'name', toUInt64(SrcPort), ''),
+       dictGetOrDefault('default.udp', 'name', toUInt64(SrcPort), '')) AS src_port_name,
+    if(dictGetOrDefault('default.tcp', 'name', toUInt64(DstPort), '') != '',
+       dictGetOrDefault('default.tcp', 'name', toUInt64(DstPort), ''),
+       dictGetOrDefault('default.udp', 'name', toUInt64(DstPort), '')) AS dst_port_name,
+    round(max(bps))              AS max_bps,
+    round(avg(bps))              AS average_bps,
+    round(quantile(0.95)(bps))  AS p95_bps,
+    round(argMax(bps, bucket))   AS last_bps
+FROM flow_buckets
+GROUP BY src_addr, dst_addr, SrcAS, DstAS, SrcPort, DstPort, PacketSizeBucket,
+         InIfSpeed, OutIfSpeed, SrcCountry, DstCountry,
+         SrcNetTenant, DstNetTenant, SrcNetName, DstNetName,
+         SrcNetPrefix, DstNetPrefix
+ORDER BY max_bps DESC
+LIMIT {lim}
+FORMAT JSONEachRow""".format(wh=window_hours, lim=limit)
+
+    try:
+        req = urllib.request.Request(
+            CLICKHOUSE_URL,
+            data=query.encode("utf-8"),
+            headers={"Content-Type": "text/plain"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read().decode("utf-8")
+    except Exception as e:
+        return [], str(e)
+
+    if raw.startswith("Code:"):
+        return [], raw.strip()
+
+    flows = []
+    for rank, line in enumerate(raw.strip().splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+
+        # Strip null chars that ClickHouse returns for empty FixedString(2) country codes
+        src_country = row.get("SrcCountry", "").replace("\x00", "")
+        dst_country = row.get("DstCountry", "").replace("\x00", "")
+
+        src_as_num  = row.get("SrcAS", 0)
+        dst_as_num  = row.get("DstAS", 0)
+        src_as_name = row.get("src_as_name", "")
+        dst_as_name = row.get("dst_as_name", "")
+        src_as_disp = f"{src_as_num} {src_as_name}".strip() if src_as_num else ""
+        dst_as_disp = f"{dst_as_num} {dst_as_name}".strip() if dst_as_num else ""
+
+        src_port_num  = row.get("SrcPort", 0)
+        dst_port_num  = row.get("DstPort", 0)
+        src_port_name = row.get("src_port_name", "")
+        dst_port_name = row.get("dst_port_name", "")
+        src_port_disp = f"{src_port_num}/{src_port_name}" if src_port_name else str(src_port_num)
+        dst_port_disp = f"{dst_port_num}/{dst_port_name}" if dst_port_name else str(dst_port_num)
+
+        max_bps  = int(row.get("max_bps",     0))
+        avg_bps  = int(row.get("average_bps", 0))
+        p95_bps  = int(row.get("p95_bps",     0))
+        last_bps = int(row.get("last_bps",    0))
+
+        flows.append({
+            "rank":               rank,
+            "src_as":             src_as_disp,
+            "dst_addr":           row.get("dst_addr", ""),
+            "dst_port":           dst_port_disp,
+            "packet_size_bucket": row.get("PacketSizeBucket", ""),
+            "src_port":           src_port_disp,
+            "in_if_speed":        row.get("InIfSpeed", 0),
+            "out_if_speed":       row.get("OutIfSpeed", 0),
+            "src_country":        src_country,
+            "dst_country":        dst_country,
+            "dst_net_tenant":     row.get("DstNetTenant", ""),
+            "src_net_tenant":     row.get("SrcNetTenant", ""),
+            "src_net_name":       row.get("SrcNetName", ""),
+            "dst_net_name":       row.get("DstNetName", ""),
+            "src_addr":           row.get("src_addr", ""),
+            "dst_as":             dst_as_disp,
+            "src_net_prefix":     row.get("SrcNetPrefix", ""),
+            "dst_net_prefix":     row.get("DstNetPrefix", ""),
+            "max_bps":            max_bps,
+            "last_bps":           last_bps,
+            "average_bps":        avg_bps,
+            "p95_bps":            p95_bps,
+            "max_mbps":           round(max_bps  / 1_000_000, 2),
+            "average_mbps":       round(avg_bps  / 1_000_000, 2),
+            "p95_mbps":           round(p95_bps  / 1_000_000, 2),
+        })
+
+    return flows, None
+
+_top_flows, _top_flows_err = get_akvorado_top_flows(limit=30, window_hours=6)
+
 # === Akvorado ===
 report["akvorado"] = {
     "inlet_up": int(scalar('up{job="akvorado_inlet"}') or 0),
@@ -216,6 +347,11 @@ report["akvorado"] = {
     "flow_pps": round(scalar('rate(akvorado_inlet_flow_input_udp_packets_total[5m])') or 0, 2),
     "flow_bps": round(scalar('rate(akvorado_inlet_flow_input_udp_bytes_total[5m])') or 0),
     "kafka_lag": scalar('akvorado_outlet_kafka_consumergroup_lag_messages'),
+    "top_flows_window": "6h",
+    "top_flows_sort": "max_bps",
+    "top_flows_count": len(_top_flows),
+    "top_flows": _top_flows,
+    **({"top_flows_error": _top_flows_err} if _top_flows_err else {}),
 }
 
 # === Google Workspace ===
