@@ -625,6 +625,9 @@ def write_prom(lines):
     ) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
+    # NamedTemporaryFile creates 0o600; chmod to 0o644 so node_exporter
+    # (running as a different user) can read the textfile.
+    os.chmod(tmp_path, 0o644)
     os.replace(tmp_path, PROM_PATH)
 
 
