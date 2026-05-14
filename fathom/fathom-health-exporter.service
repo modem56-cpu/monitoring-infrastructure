@@ -16,7 +16,7 @@ ExecStart=/opt/fathom-vault-sync/meeting_transcript_repository-master/.venv/bin/
 # Do not load full .env if it contains secrets — exporter reads paths at top of script
 # EnvironmentFile=/opt/fathom-vault-sync/meeting_transcript_repository-master/.env
 
-TimeoutStartSec=60
+TimeoutStartSec=120
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=fathom-health-exporter

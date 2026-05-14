@@ -167,7 +167,7 @@ def fingerprint_db(path):
 # SQLite integrity check (with timeout)
 # ---------------------------------------------------------------------------
 
-def check_integrity(db_path, timeout=20):
+def check_integrity(db_path, timeout=50):
     """
     Run PRAGMA integrity_check on db_path in a thread with a timeout.
     Returns 1 if 'ok', 0 on failure or timeout, -1 on connection error.
