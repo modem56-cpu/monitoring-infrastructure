@@ -177,8 +177,12 @@ def check_integrity(db_path, timeout=50):
     def _run():
         conn = None
         try:
+            # immutable=1 bypasses POSIX file locking — required for SSHFS
+            # mounts where SQLite locking is unreliable under concurrent writes.
+            # Safe here because we only read and do not need transactional
+            # consistency from the integrity check.
             conn = sqlite3.connect(
-                f"file:{db_path}?mode=ro", uri=True, timeout=5.0
+                f"file:{db_path}?mode=ro&immutable=1", uri=True, timeout=5.0
             )
             conn.execute("PRAGMA query_only = ON")
             row = conn.execute("PRAGMA integrity_check").fetchone()
