@@ -1,0 +1,12 @@
+[Unit]
+Description=Fathom Vault Sync — run inventory exporter every hour
+Requires=fathom-inventory-exporter.service
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=120
+Persistent=true
+Unit=fathom-inventory-exporter.service
+
+[Install]
+WantedBy=timers.target

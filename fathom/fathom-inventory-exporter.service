@@ -1,0 +1,19 @@
+[Unit]
+Description=Fathom Vault Sync — per-recording inventory exporter
+After=network.target fathom-nas-mount.service
+# Does not require the NAS mount — exporter handles missing DB gracefully
+
+[Service]
+Type=oneshot
+User=fathom-admin
+Group=fathom-admin
+
+ExecStart=/opt/fathom-vault-sync/meeting_transcript_repository-master/.venv/bin/python3 \
+    /opt/fathom-vault-sync/meeting_transcript_repository-master/scripts/monitoring/fathom-inventory-exporter.py
+
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fathom-inventory-exporter
+
+SuccessExitStatus=0 1

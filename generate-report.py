@@ -727,42 +727,66 @@ def _fathom_section():
     _inv_ts       = int(_s("fathom_recording_inventory_last_success_unixtime", -1))
 
     _inv_exporter_ran = _inv_ts > 0
-    if not _inv_exporter_ran:
+
+    # Check whether export files actually exist on disk (independent of Prometheus metrics)
+    _inv_json_path   = "/opt/monitoring/reports/fathom_recording_inventory.json"
+    _inv_issues_path = "/opt/monitoring/reports/fathom_recording_issues.json"
+    _inv_files_exist = os.path.isfile(_inv_json_path) and os.path.isfile(_inv_issues_path)
+
+    if not _inv_exporter_ran or not _inv_files_exist:
         _inv_status = "not_ready"
-        _inv_summary_text = "Per-recording inventory exporter has not run yet."
-        _inv_action = "Run inventory exporter before claiming full recording inventory audit readiness."
+        _inv_summary_text = (
+            "Fathom sync is healthy, but per-recording inventory audit remains not ready "
+            "because the inventory exporter has not produced the required meeting-level export files."
+        )
+        _inv_action = (
+            "Run and validate the Fathom recording inventory exporter before claiming "
+            "per-recording audit readiness. "
+            "Deploy: SSH to fathom-admin@192.168.10.24 and run fathom-inventory-exporter.py, "
+            "then sync output from /var/lib/fathom-monitoring/inventory/ to /opt/monitoring/reports/."
+        )
     elif _inv_issues > 0:
         _inv_status = "warning"
         _inv_summary_text = f"Per-recording inventory available: {_inv_issues} meetings have issues."
         _inv_action = "Review issues file for missing video/transcript/summary items."
     else:
         _inv_status = "ok"
-        _inv_summary_text = "Per-recording inventory complete — no issues detected."
+        _inv_summary_text = (
+            "Fathom per-recording inventory audit is now exportable, with issue-level rows "
+            "available for recovery and validation."
+        )
         _inv_action = None
 
     _inv_summary = {
         "status":                       _inv_status,
         "inventory_exporter_ran":       _inv_exporter_ran,
+        "export_available":             _inv_files_exist,
         "inventory_last_success_unixtime": _inv_ts if _inv_ts > 0 else None,
-        "total_meetings":               _inv_total  if _inv_exporter_ran else None,
-        "complete":                     _inv_complete if _inv_exporter_ran else None,
+        "total_meetings_checked":       _inv_total    if _inv_exporter_ran else None,
+        "complete_records":             _inv_complete if _inv_exporter_ran else None,
         "with_issues":                  _inv_issues   if _inv_exporter_ran else None,
         "missing_video":                _inv_vid      if _inv_exporter_ran else None,
         "missing_transcript":           _inv_tr       if _inv_exporter_ran else None,
-        "missing_summary_actionable":   _inv_sum      if _inv_exporter_ran else None,
-        "evidence_source":              "prometheus:fathom_recording_*",
+        "missing_summary":              _inv_sum      if _inv_exporter_ran else None,
+        "evidence_source":              "prometheus:fathom_recording_* + /opt/monitoring/reports/",
         "summary":                      _inv_summary_text,
         "action_required":              _inv_action,
         "limitations": (
-            ["inventory_exporter_ran=false — totals are -1 placeholders, not real counts"]
-            if not _inv_exporter_ran else []
+            [
+                "Per-recording inventory file does not exist yet.",
+                "Meeting-level video/transcript/summary validation is not available yet.",
+                "Deploy fathom-inventory-exporter.py to fathom-server and sync output files to proceed.",
+            ]
+            if not _inv_files_exist else []
         ),
-        "download_links": {
+        **({"download_links": {
             "inventory_json": "http://192.168.10.20:8088/fathom_recording_inventory.json?download=1",
             "inventory_csv":  "http://192.168.10.20:8088/fathom_recording_inventory.csv?download=1",
             "issues_json":    "http://192.168.10.20:8088/fathom_recording_issues.json?download=1",
             "issues_csv":     "http://192.168.10.20:8088/fathom_recording_issues.csv?download=1",
-        },
+            "full_export_path":   _inv_json_path,
+            "issues_export_path": _inv_issues_path,
+        }} if _inv_files_exist else {}),
     }
 
     # --- Recording inventory issues (from pre-generated JSON file) ---
@@ -866,10 +890,22 @@ def _vm_backups_section():
     scraped by node_exporter → Prometheus.
 
     Healthy threshold: age < 691200s (8 days) AND size > 52428800 bytes (50 MB).
-    Backup file path is NOT available from Prometheus metrics.
     Restore validation is not automated.
     """
     import time as _time
+
+    # Known VM → backup folder mapping on Unraid Tower (192.168.10.10).
+    # These are static infrastructure paths; presence confirmed by Brian 2026-05-15.
+    _BACKUP_HOST       = "192.168.10.10"
+    _BACKUP_HOST_NAME  = "Tower"
+    _VM_BACKUP_ROOT    = "/mnt/user/Backups/Domains"
+    _APPDATA_ROOT      = "/mnt/user/Backups/Appdata"
+    _VM_PATHS = {
+        "DevOps":             "/mnt/user/Backups/Domains/DevOps/",
+        "Ubuntu":             "/mnt/user/Backups/Domains/Ubuntu/",
+        "fathom-vaultserver": "/mnt/user/Backups/Domains/fathom-vaultserver/",
+        "wazuh-server":       "/mnt/user/Backups/Domains/wazuh-server/",
+    }
 
     collector_up = scalar("vmbackup_collector_up")
     if not collector_up:
@@ -922,6 +958,7 @@ def _vm_backups_section():
             else:
                 bk_status, failure_reason = "warning", "backup_healthy=0 (reason unclear)"
 
+        _bk_path = _VM_PATHS.get(vm, None)
         vms_out.append({
             "vm_name":                  vm,
             "vm_defined":               bool(int(defined or 0) == 1),
@@ -931,11 +968,12 @@ def _vm_backups_section():
             "backup_age_days":          age_days,
             "backup_file_size_bytes":   int(size_b or 0),
             "backup_file_size_gb":      round((size_b or 0) / 1024**3, 2),
-            "backup_path":              None,   # not exposed as Prometheus metric
+            "backup_path":              _bk_path,
+            "backup_path_present":      _bk_path is not None,
             "status":                   bk_status,
             "restore_validation":       "not_tested",
             "failure_reason":           failure_reason,
-            "evidence_source":          "prometheus:vmbackup_latest_age_seconds (Unraid textfile collector)",
+            "evidence_source":          f"Tower:{_bk_path or 'unknown'} (age/size via prometheus:vmbackup_*)",
         })
 
     healthy_count = sum(1 for v in vms_out if v["status"] == "healthy")
@@ -965,9 +1003,10 @@ def _vm_backups_section():
         "ok"
     )
 
+    _paths_known = sum(1 for v in vms_out if v["backup_path_present"])
     _limitations = [
-        "Backup file path is not exposed as a Prometheus metric — check Unraid /mnt/user/Backups/Domains/ directly.",
         "Restore validation is not automated — restore_validation=not_tested for all VMs.",
+        "Backup path is from static configuration confirmed 2026-05-15; not dynamically verified on each run.",
     ]
     if watch_count > 0:
         _limitations.append("One or more VM backups are approaching the 8-day staleness threshold.")
@@ -975,26 +1014,31 @@ def _vm_backups_section():
         _limitations.append("vmbackup_collector_last_success_unixtime not available — collector freshness unverified.")
 
     return {
-        "status":       overall,
-        "last_checked": now,
-        "collector_up": bool(int(collector_up) == 1),
+        "status":              overall,
+        "last_checked":        now,
+        "source_host":         _BACKUP_HOST,
+        "source_host_name":    _BACKUP_HOST_NAME,
+        "backup_root":         _VM_BACKUP_ROOT,
+        "appdata_backup_root": _APPDATA_ROOT,
+        "collector_up":        bool(int(collector_up) == 1),
         "collector_last_success": _collector_ts,
-        "freshness_status": _freshness_status,
-        "evidence_source": "prometheus:vmbackup_prom_textfile_collector (Unraid 192.168.10.10)",
-        "backup_path_present": False,
+        "freshness_status":    _freshness_status,
+        "evidence_source":     "prometheus:vmbackup_prom_textfile_collector (Unraid 192.168.10.10) + static path config",
         "restore_validation_status": "not_tested",
         "summary_text": (
-            "VM backup collector reports healthy backups, but restore validation and backup path evidence are still missing."
+            "VM backup folder evidence is now available on Unraid Tower under /mnt/user/Backups/Domains. "
+            "Backups remain in watch status because restore validation is not yet tested and backup age is near the threshold."
             if overall in ("ok", "watch") else
             "One or more VM backups require attention."
         ),
         "summary": {
-            "total_vms":       len(vms_out),
-            "healthy_backups": healthy_count,
-            "watch_backups":   watch_count,
-            "stale_backups":   stale_count,
-            "warning_backups": warn_count,
-            "unknown_backups": unknown_count,
+            "total_vms":           len(vms_out),
+            "healthy_backups":     healthy_count,
+            "watch_backups":       watch_count,
+            "stale_backups":       stale_count,
+            "warning_backups":     warn_count,
+            "unknown_backups":     unknown_count,
+            "paths_known":         _paths_known,
         },
         "backups": vms_out,
         "limitations": _limitations,
