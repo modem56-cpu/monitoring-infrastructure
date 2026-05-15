@@ -397,12 +397,19 @@ def _fathom_section():
     last_new_s   = int(_s("fathom_last_sync_new_summaries"))
     last_errs    = int(_s("fathom_last_sync_errors_total"))
 
+    # DB-level alarm signals (inode swap and integrity failure are alarming;
+    # checksum and size changes are captured by regression_detected but fire on
+    # normal sync writes — use specific metrics instead of the composite flag)
+    inode_changed  = int(_s("fathom_db_inode_changed", 0))
+    integrity_fail = 1 if integrity == 0 else 0
+    size_decreased = 1 if (_s("fathom_db_size_delta_bytes", 0) or 0) < -1024 else 0
+
     # Determine overall status
     if not exporter_up or not nas_up:
         status = "critical"
-    elif regression or not guard or not sync_ok:
-        status = "warning"
-    elif sync_age > 43200:   # 12 hours
+    elif not guard or inode_changed or integrity_fail or size_decreased:
+        status = "critical"
+    elif not sync_ok or sync_age > 43200:
         status = "warning"
     elif login_issues > 0 or audit_flags > 0:
         status = "warning"
@@ -447,6 +454,29 @@ def _fathom_section():
         })
     _sync_runs.sort(key=lambda x: x["started"], reverse=True)
 
+    # Active Fathom Prometheus alerts
+    _active_alerts = []
+    for r in pq('{alertname=~"Fathom.*"}'):
+        _active_alerts.append(r["metric"].get("alertname", ""))
+
+    # Wazuh events for fathom in last 24h (from prom-to-wazuh log)
+    _wazuh_events_24h = 0
+    try:
+        import subprocess as _sp
+        _out = _sp.run(
+            ["grep", "-c", '"category":"fathom"', "/var/log/prometheus-wazuh.log"],
+            capture_output=True, text=True, timeout=3
+        )
+        _wazuh_events_24h = int(_out.stdout.strip()) if _out.returncode == 0 else 0
+    except Exception:
+        pass
+
+    _alert_defs = [
+        "FathomExporterDown", "FathomNASUnmounted", "FathomDBRegressionDetected",
+        "FathomSyncStaleCritical", "FathomSyncErrors", "FathomLoginIssuesDetected",
+        "FathomLowCoverage", "FathomAuditFlagsDetected",
+    ]
+
     return {
         "status": status,
         "exporter_up": bool(exporter_up),
@@ -477,6 +507,13 @@ def _fathom_section():
         "audit_flags_count": audit_flags,
         "audit_flags": _audit_rows,
         "recent_sync_runs": _sync_runs,
+        "alerts": {
+            "prometheus_rules_enabled": True,
+            "wazuh_forwarding_enabled": True,
+            "wazuh_events_last_24h": _wazuh_events_24h,
+            "active_alerts": _active_alerts,
+            "alert_definitions": _alert_defs,
+        },
     }
 
 try:

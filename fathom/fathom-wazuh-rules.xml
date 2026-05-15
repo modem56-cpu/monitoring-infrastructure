@@ -232,12 +232,90 @@
        Prometheus bridge pattern matching (if Wazuh scrapes .prom file)
        ================================================================ -->
 
-  <!-- 200150: Exporter itself failed to run -->
+  <!-- 200150: Exporter itself failed to run (textfile .prom content) -->
   <rule id="200150" level="7">
     <if_sid>1002</if_sid>
     <match>fathom_exporter_success 0</match>
     <description>Fathom health exporter reported failure — one or more checks could not complete</description>
     <group>fathom,fathom.exporter.failed,</group>
+  </rule>
+
+  <!-- ================================================================
+       Prometheus-to-Wazuh bridge events (JSON from prom-to-wazuh.sh)
+       These match structured JSON events in /var/log/prometheus-wazuh.log
+       with category="fathom" and subsystem="vault_sync"
+       ================================================================ -->
+
+  <!-- 200155: Base rule — any fathom category prom-to-wazuh event -->
+  <rule id="200155" level="5">
+    <if_sid>1002</if_sid>
+    <match>"category":"fathom"</match>
+    <description>Fathom Vault Sync Prometheus alert event</description>
+    <group>fathom,fathom.prometheus_alert,</group>
+  </rule>
+
+  <!-- 200156: Exporter down (via prom-to-wazuh) -->
+  <rule id="200156" level="10">
+    <if_sid>200155</if_sid>
+    <match>FathomExporterDown</match>
+    <description>Fathom: health exporter is down — monitoring visibility lost</description>
+    <group>fathom,fathom.exporter.down,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200157: NAS unmounted (via prom-to-wazuh) -->
+  <rule id="200157" level="12">
+    <if_sid>200155</if_sid>
+    <match>FathomNASUnmounted</match>
+    <description>Fathom: NAS SSHFS mount is not accessible — all sync services affected</description>
+    <group>fathom,fathom.nas.unmounted,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200158: DB regression (via prom-to-wazuh) -->
+  <rule id="200158" level="12">
+    <if_sid>200155</if_sid>
+    <match>FathomDBRegressionDetected</match>
+    <description>Fathom: DB regression detected via Prometheus — inode swap, checksum, size decrease, or corruption</description>
+    <group>fathom,fathom.db.regression,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200159: Sync stale critical (via prom-to-wazuh) -->
+  <rule id="200159" level="12">
+    <if_sid>200155</if_sid>
+    <match>FathomSyncStaleCritical</match>
+    <description>Fathom: no successful sync in over 12 hours</description>
+    <group>fathom,fathom.sync.stale.critical,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200166: Sync errors (via prom-to-wazuh) -->
+  <rule id="200166" level="7">
+    <if_sid>200155</if_sid>
+    <match>FathomSyncErrors</match>
+    <description>Fathom: sync run completed with errors</description>
+    <group>fathom,fathom.sync.errors,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200167: Login issues detected (via prom-to-wazuh) -->
+  <rule id="200167" level="7">
+    <if_sid>200155</if_sid>
+    <match>FathomLoginIssuesDetected</match>
+    <description>Fathom: one or more accounts have login authentication errors</description>
+    <group>fathom,fathom.login.issues,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200168: Low coverage (via prom-to-wazuh) -->
+  <rule id="200168" level="6">
+    <if_sid>200155</if_sid>
+    <match>FathomLowCoverage</match>
+    <description>Fathom: video, transcript, or summary coverage is below expected threshold</description>
+    <group>fathom,fathom.coverage.low,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200169: Audit flags detected (via prom-to-wazuh) -->
+  <rule id="200169" level="6">
+    <if_sid>200155</if_sid>
+    <match>FathomAuditFlagsDetected</match>
+    <description>Fathom: accounts with incomplete sync coverage detected (below 60% summary)</description>
+    <group>fathom,fathom.audit.flags,prometheus_alert,</group>
   </rule>
 
   <!-- ================================================================

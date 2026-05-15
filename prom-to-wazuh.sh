@@ -28,6 +28,13 @@ emit() {
     "$ts" "$1" "$2" "$3" "$4" "$5" "$6" >> "$LOGFILE"
 }
 
+emit_fathom() {
+  # $1=alertname $2=severity $3=value $4=summary $5=description
+  # Structured fathom event with category/subsystem for Wazuh SIEM routing
+  printf '{"timestamp":"%s","source":"prometheus","category":"fathom","subsystem":"vault_sync","alertname":"%s","instance":"192.168.10.24:9100","alias":"fathom-server","severity":"%s","value":"%s","summary":"%s","description":"%s","dashboard":"fathom-vault-sync-ops","runbook":"Check Fathom Vault Sync dashboard and recent sync runs"}\n' \
+    "$ts" "$1" "$2" "$3" "$4" "$5" >> "$LOGFILE"
+}
+
 # ============================================================
 # 1. Node Down (up == 0)
 # ============================================================
@@ -328,10 +335,11 @@ query 'fathom_exporter_success == 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
-    inst = r['metric'].get('instance','fathom-server')
-    print(f'{inst}')
-" 2>/dev/null | while read -r inst; do
-  emit "FathomExporterDown" "$inst" "fathom-server" "critical" "0" "Fathom health exporter reported failure on $inst"
+    print('down')
+" 2>/dev/null | while read -r _; do
+  emit_fathom "FathomExporterDown" "critical" "0" \
+    "Fathom health exporter reported failure" \
+    "Fathom monitoring is degraded — one or more health checks could not complete"
 done
 
 # ============================================================
@@ -341,9 +349,11 @@ query 'fathom_nas_mounted == 0' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
-    print('fathom-server')
-" 2>/dev/null | while read -r inst; do
-  emit "FathomNASUnmounted" "192.168.10.24:9100" "fathom-server" "critical" "0" "Fathom NAS SSHFS mount is not accessible — all sync services affected"
+    print('unmounted')
+" 2>/dev/null | while read -r _; do
+  emit_fathom "FathomNASUnmounted" "critical" "0" \
+    "Fathom NAS SSHFS mount is not accessible — all sync services affected" \
+    "fathom-nas-mount.service has failed or the NAS is unreachable"
 done
 
 # ============================================================
@@ -353,9 +363,11 @@ query 'fathom_db_regression_detected == 1' | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
-    print('detected')
+    print('regression')
 " 2>/dev/null | while read -r _; do
-  emit "FathomDBRegressionDetected" "192.168.10.24:9100" "fathom-server" "critical" "1" "Fathom DB regression detected — inode swap, checksum change, size decrease, or corruption"
+  emit_fathom "FathomDBRegressionDetected" "critical" "1" \
+    "Fathom DB regression detected — inode swap, checksum change, size decrease, or corruption" \
+    "Inspect /var/lib/fathom-monitoring/fathom_db_events.log for details"
 done
 
 # ============================================================
@@ -366,10 +378,12 @@ import sys, json
 data = json.load(sys.stdin)
 for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
-    print(f'{val}')
-" 2>/dev/null | while read -r val; do
-  hours=$(echo "$val / 3600" | bc 2>/dev/null || echo "?")
-  emit "FathomSyncStaleCritical" "192.168.10.24:9100" "fathom-server" "critical" "$val" "Fathom sync stale — no successful sync in over ${hours}h"
+    hours = round(float(val) / 3600, 1)
+    print(f'{val}|{hours}')
+" 2>/dev/null | while IFS='|' read -r val hours; do
+  emit_fathom "FathomSyncStaleCritical" "critical" "$val" \
+    "Fathom sync stale — no successful sync in over ${hours}h" \
+    "Check fathom-sync.timer status and sync_runs table on fathom-server"
 done
 
 # ============================================================
@@ -382,7 +396,9 @@ for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "FathomLoginIssues" "192.168.10.24:9100" "fathom-server" "warning" "$val" "Fathom: ${val} account(s) have login errors"
+  emit_fathom "FathomLoginIssuesDetected" "warning" "$val" \
+    "Fathom: ${val} account(s) have login errors" \
+    "Review accounts with login_status != ok in the Fathom DB"
 done
 
 # ============================================================
@@ -395,5 +411,42 @@ for r in data.get('data',{}).get('result',[]):
     val = r['value'][1]
     print(f'{val}')
 " 2>/dev/null | while read -r val; do
-  emit "FathomSyncErrors" "192.168.10.24:9100" "fathom-server" "warning" "$val" "Fathom last sync run had ${val} error(s)"
+  emit_fathom "FathomSyncErrors" "warning" "$val" \
+    "Fathom last sync run had ${val} error(s)" \
+    "Check fathom-sync.service journal for error details"
+done
+
+# ============================================================
+# 24. Fathom — Low coverage (video < 90% OR summary < 80%)
+# ============================================================
+query 'fathom_video_coverage_percent < 90 or fathom_summary_coverage_percent < 80 or fathom_transcript_coverage_percent < 90' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+seen = set()
+for r in data.get('data',{}).get('result',[]):
+    name = r['metric'].get('__name__','')
+    val = round(float(r['value'][1]), 1)
+    if name not in seen:
+        seen.add(name)
+        label = name.replace('fathom_','').replace('_coverage_percent','').replace('_',' ')
+        print(f'{label}|{val}')
+" 2>/dev/null | while IFS='|' read -r label val; do
+  emit_fathom "FathomLowCoverage" "warning" "$val" \
+    "Fathom ${label} coverage at ${val}% — below threshold" \
+    "Review coverage metrics in fathom-vault-sync-ops dashboard"
+done
+
+# ============================================================
+# 25. Fathom — Audit flags (accounts below 60% summary coverage)
+# ============================================================
+query 'fathom_audit_flags_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit_fathom "FathomAuditFlagsDetected" "warning" "$val" \
+    "Fathom: ${val} account(s) have summary coverage below 60%" \
+    "Review audit flags table in fathom-vault-sync-ops dashboard"
 done

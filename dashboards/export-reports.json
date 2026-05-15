@@ -4271,6 +4271,166 @@
           "refId": "C"
         }
       ]
+    },
+    {
+      "id": 72,
+      "type": "row",
+      "title": "Fathom Vault Sync \u2014 SIEM Alerts",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 168,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 73,
+      "type": "barchart",
+      "title": "Fathom Alerts by Type (Last 24h)",
+      "gridPos": {
+        "x": 0,
+        "y": 169,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "ffk7yn7hg1k3ka"
+      },
+      "options": {
+        "xField": "Value",
+        "barWidth": 0.7,
+        "fillOpacity": 80
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "ffk7yn7hg1k3ka"
+          },
+          "query": "data.category:\"fathom\"",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "data.alertname.keyword",
+              "settings": {
+                "size": "20",
+                "order": "desc"
+              }
+            }
+          ],
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "type": "barchart",
+      "title": "Fathom Alerts by Severity (Last 24h)",
+      "gridPos": {
+        "x": 12,
+        "y": 169,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "ffk7yn7hg1k3ka"
+      },
+      "options": {
+        "xField": "Value",
+        "barWidth": 0.7,
+        "fillOpacity": 80
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "ffk7yn7hg1k3ka"
+          },
+          "query": "data.category:\"fathom\"",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "data.severity.keyword",
+              "settings": {
+                "size": "20",
+                "order": "desc"
+              }
+            }
+          ],
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "type": "table",
+      "title": "Fathom SIEM Alerts \u2014 Last 24h (Exportable)",
+      "gridPos": {
+        "x": 0,
+        "y": 175,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "ffk7yn7hg1k3ka"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "ffk7yn7hg1k3ka"
+          },
+          "query": "data.category:\"fathom\" AND data.subsystem:\"vault_sync\"",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data"
+            }
+          ],
+          "bucketAggs": [],
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "5m",
