@@ -1,0 +1,204 @@
+groups:
+- name: fathom_vault_sync
+  rules:
+
+  - alert: FathomExporterDown
+    expr: fathom_exporter_success == 0 or absent(fathom_exporter_success{job="node_ubuntu_192_168_10_24"})
+    for: 10m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom health exporter is down or not reporting"
+
+  - alert: FathomNASUnmounted
+    expr: fathom_nas_mounted == 0
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom NAS SSHFS mount is not accessible — all sync services affected"
+
+  - alert: FathomDBGuardFailed
+    expr: fathom_db_live_guard_pass == 0 and fathom_nas_mounted == 1
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom live DB guard failed — wrong database may be in use"
+
+  - alert: FathomDBRegressionDetected
+    expr: fathom_db_regression_detected == 1
+    for: 0m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom DB regression detected — size decrease, inode swap, checksum change, or integrity failure"
+
+  - alert: FathomSyncStaleCritical
+    expr: fathom_latest_sync_age_seconds > 43200
+    for: 15m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom sync stale — no successful sync in over 12 hours"
+
+  - alert: FathomSyncTimerInactive
+    expr: fathom_sync_timer_active == 0
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+    annotations:
+      summary: "Fathom sync timer is inactive — metadata sync will stop running"
+
+  - alert: FathomSyncStaleWarning
+    expr: fathom_latest_sync_age_seconds > 21600 and fathom_latest_sync_age_seconds <= 43200
+    for: 15m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom sync stale warning — no successful sync in over 6 hours"
+
+  - alert: FathomVideoTimerInactive
+    expr: fathom_video_timer_active == 0
+    for: 15m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom video download timer is inactive"
+
+  - alert: FathomLoginIssuesDetected
+    expr: fathom_login_issues_total > 0
+    for: 30m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom login issues detected"
+
+  - alert: FathomAuditFlagsDetected
+    expr: fathom_audit_flags_total > 0
+    for: 1h
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom audit flags detected — accounts below 60% summary coverage"
+
+  - alert: FathomLowSummaryCoverage
+    expr: fathom_summary_coverage_percent < 80
+    for: 1h
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom summary coverage below 80%"
+
+  - alert: FathomLowVideoCoverage
+    expr: fathom_video_coverage_percent < 90
+    for: 1h
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom video coverage below 90%"
+
+  - alert: FathomSyncErrors
+    expr: fathom_last_sync_errors_total > 0
+    for: 5m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom last sync run reported errors"
+
+  - alert: FathomRootDiskWarning
+    expr: fathom_root_disk_used_percent > 85
+    for: 15m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom server root disk above 85%"
+
+  - alert: FathomStaleLocalDBExists
+    expr: fathom_stale_local_db_exists == 1
+    for: 1h
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom stale project-root fathom.db exists"
+
+  # ---------------------------------------------------------------
+  # Regression detection — offset-based historical comparison (6h)
+  # These fire when counts or coverage drop unexpectedly vs 6h ago.
+  # Requires 6h of Prometheus TSDB history for the alias metrics.
+  # ---------------------------------------------------------------
+
+  - alert: FathomSummaryCountDropped
+    expr: (fathom_summaries_total - fathom_summaries_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom summary count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomTranscriptCountDropped
+    expr: (fathom_transcripts_total - fathom_transcripts_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom transcript count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomVideoCountDropped
+    expr: (fathom_videos_total - fathom_videos_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom video count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomMeetingCountDropped
+    expr: (fathom_total_meetings - fathom_total_meetings offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom total meeting count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomSummaryCoverageDropped
+    expr: (fathom_summary_coverage_percent - fathom_summary_coverage_percent offset 6h) < -5
+    for: 15m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom summary coverage dropped > 5% in 6h — investigate for DB regression or stale DB"
+
+  - alert: FathomDBFingerprintChanged
+    expr: fathom_db_fingerprint_changed == 1
+    for: 0m
+    labels:
+      severity: warning
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom DB inode or checksum changed — possible file swap, restore, or DB replacement"

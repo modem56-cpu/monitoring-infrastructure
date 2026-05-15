@@ -91,16 +91,65 @@ if vps_cpu is not None:
 
 report["system_metrics"] = sys_m
 
+# Capacity pressure classification per node
+_PRIORITY_ORDER = ["critical", "warning", "watch", "ok", "unknown"]
+def _pressure_status(cpu, mem, swap):
+    if mem is not None and mem > 90 and (swap or 0) > 50:
+        return "critical"
+    if (cpu is not None and cpu > 70) or (mem is not None and mem > 85) or (swap is not None and swap > 50):
+        return "warning"
+    if (cpu is not None and cpu > 60) or (mem is not None and mem > 75):
+        return "watch"
+    return "ok"
+
+_capacity_pressure = {}
+for _inst, _m in sys_m.items():
+    _cpu = _m.get("cpu_current_pct") or _m.get("cpu_5m_avg_pct")
+    _mem = _m.get("memory_pct")
+    _swp = _m.get("swap_pct")
+    _ps  = _pressure_status(_cpu, _mem, _swp)
+    if _ps in ("warning", "critical", "watch"):
+        _contributors = []
+        if _cpu is not None and _cpu > 70:
+            _contributors.append(f"cpu {_cpu}%")
+        if _mem is not None and _mem > 85:
+            _contributors.append(f"memory {_mem}%")
+        if _swp is not None and _swp > 50:
+            _contributors.append(f"swap {_swp}%")
+        _capacity_pressure[_inst] = {
+            "status": _ps,
+            "cpu_pct": _cpu,
+            "memory_pct": _mem,
+            "swap_pct": _swp,
+            "contributors": _contributors,
+            "summary": "Operational but under resource pressure." if _ps != "critical" else "High resource pressure — services at risk.",
+        }
+report["capacity_pressure"] = _capacity_pressure
+
 # === Firing Alerts ===
-alerts = []
+# Group by alert name; include count + all firing instances to reduce noise
+_alert_raw = []
+_alert_groups = {}
 for r in pq('ALERTS{alertstate="firing"}'):
-    alerts.append({
-        "alert": r["metric"].get("alertname", ""),
-        "instance": r["metric"].get("instance", ""),
-        "severity": r["metric"].get("severity", ""),
-    })
-report["alerts_firing"] = alerts
-report["alerts_firing_count"] = len(alerts)
+    _aname    = r["metric"].get("alertname", "")
+    _ainst    = r["metric"].get("instance", "")
+    _asev     = r["metric"].get("severity", "")
+    _alert_raw.append({"alert": _aname, "instance": _ainst, "severity": _asev})
+    if _aname not in _alert_groups:
+        _alert_groups[_aname] = {"alert": _aname, "severity": _asev, "count": 0, "instances": []}
+    _alert_groups[_aname]["count"] += 1
+    if _ainst and _ainst not in _alert_groups[_aname]["instances"]:
+        _alert_groups[_aname]["instances"].append(_ainst)
+
+# Priority sort: critical first, then warning, then others
+_sev_rank = {"critical": 0, "warning": 1, "watch": 2, "info": 3, "": 4}
+_alerts_grouped = sorted(
+    _alert_groups.values(),
+    key=lambda x: (_sev_rank.get(x["severity"], 4), x["alert"])
+)
+report["alerts_firing"] = _alert_raw
+report["alerts_firing_grouped"] = _alerts_grouped
+report["alerts_firing_count"] = len(_alert_raw)
 
 # === Docker ===
 containers = {}
@@ -337,19 +386,72 @@ FORMAT JSONEachRow""".format(wh=window_hours, lim=limit)
 
     return flows, None
 
-_top_flows, _top_flows_err = get_akvorado_top_flows(limit=30, window_hours=6)
+# Embedded report: top 10, 1h window (lightweight for frequent report generation)
+_top_flows, _top_flows_err = get_akvorado_top_flows(limit=10, window_hours=1)
+
+# Separate full export: top 30, 6h window — written to reports/ for download
+_top_flows_full, _top_flows_full_err = get_akvorado_top_flows(limit=30, window_hours=6)
+_top30_path = "/opt/monitoring/reports/akvorado_top30_flows.json"
+try:
+    import os as _os
+    with open(_top30_path, "w", encoding="utf-8") as _tf:
+        json.dump({
+            "generated_at": now,
+            "window": "6h",
+            "limit": 30,
+            "count": len(_top_flows_full),
+            "flows": _top_flows_full,
+            **({"error": _top_flows_full_err} if _top_flows_full_err else {}),
+        }, _tf, indent=2)
+except Exception as _e:
+    _top_flows_full_err = (_top_flows_full_err or "") + f"; export write error: {_e}"
+
+# Kafka lag severity band
+_kafka_lag = scalar('akvorado_outlet_kafka_consumergroup_lag_messages')
+if _kafka_lag is None:
+    _kafka_lag_status = "unknown"
+elif _kafka_lag > 1_000_000:
+    _kafka_lag_status = "critical"
+elif _kafka_lag > 500_000:
+    _kafka_lag_status = "warning"
+elif _kafka_lag > 100_000:
+    _kafka_lag_status = "watch"
+else:
+    _kafka_lag_status = "ok"
+
+_ak_inlet_up = int(scalar('up{job="akvorado_inlet"}') or 0)
+_ak_outlet_up = int(scalar('up{job="akvorado_outlet"}') or 0)
+_ak_orch_up = int(scalar('up{job="akvorado_orchestrator"}') or 0)
+_ak_all_up = _ak_inlet_up and _ak_outlet_up and _ak_orch_up
+_ak_status = "ok" if (_ak_all_up and _kafka_lag_status in ("ok", "unknown")) else \
+             "critical" if (not _ak_all_up) else \
+             _kafka_lag_status
 
 # === Akvorado ===
 report["akvorado"] = {
-    "inlet_up": int(scalar('up{job="akvorado_inlet"}') or 0),
-    "outlet_up": int(scalar('up{job="akvorado_outlet"}') or 0),
-    "orchestrator_up": int(scalar('up{job="akvorado_orchestrator"}') or 0),
-    "flow_pps": round(scalar('rate(akvorado_inlet_flow_input_udp_packets_total[5m])') or 0, 2),
-    "flow_bps": round(scalar('rate(akvorado_inlet_flow_input_udp_bytes_total[5m])') or 0),
-    "kafka_lag": scalar('akvorado_outlet_kafka_consumergroup_lag_messages'),
-    "top_flows_window": "6h",
-    "top_flows_sort": "max_bps",
-    "top_flows_count": len(_top_flows),
+    "status": _ak_status,
+    "last_checked": now,
+    "evidence_source": "prometheus:akvorado_* + clickhouse:default.flows",
+    "summary": {
+        "inlet_up":         _ak_inlet_up,
+        "outlet_up":        _ak_outlet_up,
+        "orchestrator_up":  _ak_orch_up,
+        "flow_pps":         round(scalar('rate(akvorado_inlet_flow_input_udp_packets_total[5m])') or 0, 2),
+        "flow_bps":         round(scalar('rate(akvorado_inlet_flow_input_udp_bytes_total[5m])') or 0),
+        "kafka_lag":        _kafka_lag,
+        "kafka_lag_status": _kafka_lag_status,
+        "interpretation":   (
+            "Components are up, but Kafka lag is high; this is a monitoring visibility backlog, not confirmed network outage."
+            if _kafka_lag_status in ("warning", "critical")
+            else "Components up, no significant backlog."
+        ),
+    },
+    "top_flows_embedded_limit":     10,
+    "top_flows_window":             "1h",
+    "top_flows_sort":               "max_bps",
+    "top_flows_count":              len(_top_flows),
+    "top_flows_full_export_available": len(_top_flows_full) > 0,
+    "top_flows_full_export_path":   "http://192.168.10.20:8088/akvorado_top30_flows.json",
     "top_flows": _top_flows,
     **({"top_flows_error": _top_flows_err} if _top_flows_err else {}),
 }
@@ -506,7 +608,136 @@ def _fathom_section():
         "FathomSummaryCountDropped", "FathomTranscriptCountDropped",
         "FathomVideoCountDropped", "FathomMeetingCountDropped",
         "FathomSummaryCoverageDropped", "FathomDBFingerprintChanged",
+        "FathomAPI5xxBurst",
     ]
+
+    # --- Service health (derived from Prometheus fathom_health_exporter metrics) ---
+    # Note: fathom_api_5xx_errors_total and fathom_api_last_5xx_* are populated only
+    # after fathom_health_exporter.py is redeployed with 502-tracking support.
+    _timer_active       = int(_s("fathom_sync_timer_active", -1))
+    _api_5xx_total      = int(_s("fathom_api_5xx_errors_total", 0))
+    _api_last_5xx_ts    = int(_s("fathom_api_last_5xx_unixtime", -1))
+    _api_last_5xx_code  = int(_s("fathom_api_last_5xx_status", -1))
+
+    _last_run       = _sync_runs[0] if _sync_runs else {}
+    _lr_status      = _last_run.get("status", "unknown")
+    _lr_started     = _last_run.get("started", None)
+    _lr_dur         = _last_run.get("duration_seconds", -1)
+    _lr_errs        = _last_run.get("errors", 0)
+    _lr_new_m       = _last_run.get("new_meetings", 0)
+
+    # Classify whether API errors affected the sync outcome
+    if _lr_status == "failed" or _lr_errs > 0:
+        _sync_impact = "affected_sync"
+    elif _api_5xx_total > 0 and _lr_status == "success":
+        _sync_impact = "historical_noise"   # 5xx occurred but retry succeeded
+    elif _lr_status == "success":
+        _sync_impact = "none"
+    else:
+        _sync_impact = "unknown"
+
+    _sh_parts = [
+        f"fathom-sync timer {'active' if _timer_active == 1 else 'INACTIVE' if _timer_active == 0 else 'unknown'}",
+        f"last run: {_lr_status or 'unknown'}",
+    ]
+    if _lr_new_m and _lr_new_m > 0:
+        _sh_parts.append(f"{_lr_new_m} new meetings")
+    if _api_5xx_total > 0:
+        _sh_parts.append(f"{_api_5xx_total} API 5xx errors tracked (recovered via retry)")
+    if _api_last_5xx_ts > 0:
+        _sh_parts.append(f"last 5xx at unix:{_api_last_5xx_ts}")
+
+    _service_health = {
+        "service_name":              "fathom-sync",
+        "timer_name":                "fathom-sync.timer",
+        "timer_active":              bool(_timer_active == 1),
+        "last_run_status":           _lr_status,
+        "last_run_started":          _lr_started,
+        "last_run_duration_seconds": _lr_dur,
+        "last_run_new_meetings":     _lr_new_m,
+        "last_run_errors":           _lr_errs,
+        "restart_count":             0,
+        "api_5xx_total":             _api_5xx_total,
+        "api_last_5xx_unixtime":     _api_last_5xx_ts  if _api_last_5xx_ts  > 0 else None,
+        "api_last_5xx_status_code":  _api_last_5xx_code if _api_last_5xx_code > 0 else None,
+        "api_5xx_note":              (
+            "api_5xx_total will populate after fathom_health_exporter.py redeploy with 502 tracking"
+            if _api_5xx_total == 0 else None
+        ),
+        "sync_impact":               _sync_impact,
+        "evidence_source":           "prometheus:fathom_health_exporter",
+        "summary":                   "; ".join(_sh_parts),
+    }
+
+    # --- Recording inventory summary (from Prometheus aggregate metrics) ---
+    # Detailed per-meeting files are written by fathom-inventory-exporter.py
+    # on fathom-server and synced to /opt/monitoring/reports/ by deploy script.
+    _inv_total    = int(_s("fathom_recording_inventory_total",   -1))
+    _inv_complete = int(_s("fathom_recording_complete_total",    -1))
+    _inv_vid      = int(_s("fathom_recording_missing_video_total",     -1))
+    _inv_tr       = int(_s("fathom_recording_missing_transcript_total",-1))
+    _inv_sum      = int(_s("fathom_recording_missing_summary_total",   -1))
+    _inv_issues   = int(_s("fathom_recording_has_issues_total",  -1))
+    _inv_ts       = int(_s("fathom_recording_inventory_last_success_unixtime", -1))
+
+    _inv_exporter_ran = _inv_ts > 0
+    if not _inv_exporter_ran:
+        _inv_status = "not_ready"
+        _inv_summary_text = "Per-recording inventory exporter has not run yet."
+        _inv_action = "Run inventory exporter before claiming full recording inventory audit readiness."
+    elif _inv_issues > 0:
+        _inv_status = "warning"
+        _inv_summary_text = f"Per-recording inventory available: {_inv_issues} meetings have issues."
+        _inv_action = "Review issues file for missing video/transcript/summary items."
+    else:
+        _inv_status = "ok"
+        _inv_summary_text = "Per-recording inventory complete — no issues detected."
+        _inv_action = None
+
+    _inv_summary = {
+        "status":                       _inv_status,
+        "inventory_exporter_ran":       _inv_exporter_ran,
+        "inventory_last_success_unixtime": _inv_ts if _inv_ts > 0 else None,
+        "total_meetings":               _inv_total,
+        "complete":                     _inv_complete,
+        "with_issues":                  _inv_issues,
+        "missing_video":                _inv_vid,
+        "missing_transcript":           _inv_tr,
+        "missing_summary_actionable":   _inv_sum,
+        "evidence_source":              "prometheus:fathom_recording_*",
+        "summary":                      _inv_summary_text,
+        "action_required":              _inv_action,
+        "limitations": (
+            ["inventory_exporter_ran=false — totals are -1 placeholders, not real counts"]
+            if not _inv_exporter_ran else []
+        ),
+        "download_links": {
+            "inventory_json": "http://192.168.10.20:8088/fathom_recording_inventory.json?download=1",
+            "inventory_csv":  "http://192.168.10.20:8088/fathom_recording_inventory.csv?download=1",
+            "issues_json":    "http://192.168.10.20:8088/fathom_recording_issues.json?download=1",
+            "issues_csv":     "http://192.168.10.20:8088/fathom_recording_issues.csv?download=1",
+        },
+    }
+
+    # --- Recording inventory issues (from pre-generated JSON file) ---
+    # File is synced from fathom-server by deploy-fathom-monitoring.sh
+    _inv_issues_detail = None
+    _issues_file = "/opt/monitoring/reports/fathom_recording_issues.json"
+    try:
+        if os.path.isfile(_issues_file):
+            with open(_issues_file, "r", encoding="utf-8") as _f:
+                _issues_data = json.load(_f)
+            # Cap at 200 issues for JSON report readability
+            _issues_list = _issues_data.get("issues", [])[:200]
+            _inv_issues_detail = {
+                "source_file":    _issues_file,
+                "generated_at":   _issues_data.get("generated_at"),
+                "truncated":      len(_issues_data.get("issues", [])) > 200,
+                "total_issues":   _issues_data.get("summary", {}).get("with_issues", len(_issues_list)),
+                "issues":         _issues_list,
+            }
+    except Exception:
+        _inv_issues_detail = {"error": "Could not read issues file", "source_file": _issues_file}
 
     return {
         "status": status,
@@ -564,6 +795,9 @@ def _fathom_section():
             "transcripts_6h_ago": int(_tr_6h) if _tr_6h is not None else None,
             "transcript_delta_6h": _tr_delta,
         },
+        "service_health": _service_health,
+        "recording_inventory_summary": _inv_summary,
+        "recording_inventory_issues": _inv_issues_detail,
         "alerts": {
             "prometheus_rules_enabled": True,
             "wazuh_forwarding_enabled": True,
@@ -577,6 +811,154 @@ try:
     report["fathom_vault_sync"] = _fathom_section()
 except Exception as e:
     report["fathom_vault_sync"] = {"error": str(e)}
+
+
+def _vm_backups_section():
+    """
+    Build VM backup status from Prometheus vmbackup_* metrics.
+    Source: vmbackup-prom.sh textfile collector running on Unraid (192.168.10.10),
+    scraped by node_exporter → Prometheus.
+
+    Healthy threshold: age < 691200s (8 days) AND size > 52428800 bytes (50 MB).
+    Backup file path is NOT available from Prometheus metrics.
+    Restore validation is not automated.
+    """
+    import time as _time
+
+    collector_up = scalar("vmbackup_collector_up")
+    if not collector_up:
+        return {
+            "status": "unknown",
+            "last_checked": now,
+            "collector_up": False,
+            "source": "prometheus:vmbackup_prom_textfile_collector",
+            "summary": {"total_vms": 0, "healthy_backups": 0, "stale_backups": 0, "unknown_backups": 0},
+            "backups": [],
+            "notes": ["vmbackup_collector_up metric not found — Unraid textfile collector may be offline."],
+        }
+
+    # Gather all known VM names from the labeled metrics
+    _vm_names = set()
+    for _r in pq("vmbackup_backup_healthy"):
+        _v = _r["metric"].get("vm", "")
+        if _v:
+            _vm_names.add(_v)
+
+    vms_out = []
+    for vm in sorted(_vm_names):
+        def _vm_scalar(metric):
+            v = scalar(f'{metric}{{vm="{vm}"}}')
+            return None if v is None else float(v)
+
+        age_s   = _vm_scalar("vmbackup_latest_age_seconds")
+        size_b  = _vm_scalar("vmbackup_latest_disk_size_bytes")
+        healthy = _vm_scalar("vmbackup_backup_healthy")
+        defined = _vm_scalar("vmbackup_vm_defined")
+        running = _vm_scalar("vmbackup_vm_running")
+
+        if age_s is None or age_s < 0:
+            age_hours, age_days = None, None
+            bk_status, failure_reason = "unknown", "backup age metric unavailable or -1"
+        else:
+            age_hours = round(age_s / 3600, 1)
+            age_days  = round(age_s / 86400, 1)
+            if int(healthy or 0) == 1:
+                if age_s > 604800:  # > 7 days — healthy but approaching 8-day threshold
+                    bk_status, failure_reason = "watch", f"backup age {age_days} days — approaching 8-day threshold"
+                else:
+                    bk_status, failure_reason = "healthy", None
+            elif age_s > 691200:
+                bk_status = "stale"
+                failure_reason = f"backup age {age_days} days exceeds 8-day threshold"
+            elif (size_b or 0) <= 52428800:
+                bk_status = "warning"
+                failure_reason = f"backup size {round((size_b or 0)/1024**3, 2)} GB below 50 MB threshold"
+            else:
+                bk_status, failure_reason = "warning", "backup_healthy=0 (reason unclear)"
+
+        vms_out.append({
+            "vm_name":                  vm,
+            "vm_defined":               bool(int(defined or 0) == 1),
+            "vm_running":               bool(int(running or 0) == 1),
+            "latest_backup_age_seconds": int(age_s) if age_s and age_s >= 0 else None,
+            "backup_age_hours":         age_hours,
+            "backup_age_days":          age_days,
+            "backup_file_size_bytes":   int(size_b or 0),
+            "backup_file_size_gb":      round((size_b or 0) / 1024**3, 2),
+            "backup_path":              None,   # not exposed as Prometheus metric
+            "status":                   bk_status,
+            "restore_validation":       "not_tested",
+            "failure_reason":           failure_reason,
+            "evidence_source":          "prometheus:vmbackup_latest_age_seconds (Unraid textfile collector)",
+        })
+
+    healthy_count = sum(1 for v in vms_out if v["status"] == "healthy")
+    watch_count   = sum(1 for v in vms_out if v["status"] == "watch")
+    stale_count   = sum(1 for v in vms_out if v["status"] == "stale")
+    warn_count    = sum(1 for v in vms_out if v["status"] == "warning")
+    unknown_count = sum(1 for v in vms_out if v["status"] == "unknown")
+
+    if len(vms_out) == 0:
+        overall = "unknown"
+    elif stale_count > 0 or warn_count > 0:
+        overall = "warning"
+    elif unknown_count > 0:
+        overall = "warning"
+    elif watch_count > 0:
+        overall = "watch"
+    else:
+        overall = "ok"
+
+    # Collector freshness: check if any age values are suspiciously identical across calls
+    # (we can't detect staleness within a single run, but we flag it in limitations)
+    _collector_ts = scalar("vmbackup_collector_last_success_unixtime")
+    _collector_age_s = (_time.time() - _collector_ts) if _collector_ts else None
+    _freshness_status = (
+        "unknown" if _collector_ts is None else
+        "stale"   if (_collector_age_s or 0) > 7200 else
+        "ok"
+    )
+
+    _limitations = [
+        "Backup file path is not exposed as a Prometheus metric — check Unraid /mnt/user/Backups/Domains/ directly.",
+        "Restore validation is not automated — restore_validation=not_tested for all VMs.",
+    ]
+    if watch_count > 0:
+        _limitations.append("One or more VM backups are approaching the 8-day staleness threshold.")
+    if _freshness_status == "unknown":
+        _limitations.append("vmbackup_collector_last_success_unixtime not available — collector freshness unverified.")
+
+    return {
+        "status":       overall,
+        "last_checked": now,
+        "collector_up": bool(int(collector_up) == 1),
+        "collector_last_success": _collector_ts,
+        "freshness_status": _freshness_status,
+        "evidence_source": "prometheus:vmbackup_prom_textfile_collector (Unraid 192.168.10.10)",
+        "backup_path_present": False,
+        "restore_validation_status": "not_tested",
+        "summary_text": (
+            "VM backup collector reports healthy backups, but restore validation and backup path evidence are still missing."
+            if overall in ("ok", "watch") else
+            "One or more VM backups require attention."
+        ),
+        "summary": {
+            "total_vms":       len(vms_out),
+            "healthy_backups": healthy_count,
+            "watch_backups":   watch_count,
+            "stale_backups":   stale_count,
+            "warning_backups": warn_count,
+            "unknown_backups": unknown_count,
+        },
+        "backups": vms_out,
+        "limitations": _limitations,
+    }
+
+
+try:
+    report["vm_backups"] = _vm_backups_section()
+except Exception as e:
+    report["vm_backups"] = {"error": str(e), "status": "unknown"}
 
 # === Google Workspace ===
 _gw_personal_bytes = scalar("gworkspace_org_storage_used_bytes") or 0
@@ -632,12 +1014,33 @@ for r in pq("topk(10, gworkspace_shared_drive_size_bytes)"):
 gw["top_shared_drives"] = top_shared
 
 # Shared drive live summary from current Prometheus metrics
+_gw_unapproved = int(scalar("gworkspace_unapproved_external_shared_drives_total") or 0)
+_gw_storage_pct = _gw_used_pct
+_gw_status = (
+    "critical" if _gw_unapproved > 10 or _gw_storage_pct > 90 else
+    "warning"  if _gw_unapproved > 0  or _gw_storage_pct > 80 else
+    "ok"
+)
+gw["status"] = _gw_status
+gw["last_checked"] = now
+gw["evidence_source"] = "prometheus:gworkspace_collector"
 gw["shared_drive_summary"] = {
+    "status":                   _gw_status,
     "total_live":               int(scalar("gworkspace_shared_drives_total") or 0),
     "approved_external_live":   int(scalar("gworkspace_approved_external_shared_drives_total") or 0),
-    "unapproved_external_live": int(scalar("gworkspace_unapproved_external_shared_drives_total") or 0),
+    "unapproved_external_live": _gw_unapproved,
     "deleted_detected":         int(scalar("gworkspace_deleted_shared_drives_total") or 0),
-    "external_violations_live": int(scalar("gworkspace_unapproved_external_shared_drives_total") or 0),
+    "external_violations_live": _gw_unapproved,
+    "governance_summary": (
+        f"Google Workspace external sharing remains a governance risk due to "
+        f"{_gw_unapproved} unapproved externally shared drives."
+        if _gw_unapproved > 0
+        else "No unapproved externally shared drives detected."
+    ),
+    "action_required": (
+        "Review and remediate unapproved external shared drives. Classify each as approved or remove external access."
+        if _gw_unapproved > 0 else None
+    ),
 }
 
 # Deleted shared drives from state file (audit trail)
@@ -756,10 +1159,32 @@ try:
         wda = json.loads(r.read().decode())
     aggs = wda.get("aggregations", {})
     prom_bridge = aggs.get("prometheus_bridge", {})
+    _by_rule_raw = {b["key"]: b["doc_count"] for b in aggs.get("by_rule", {}).get("buckets", [])}
+
+    # Classify noisy/malformed rules so report consumers can separate signal from noise.
+    # These patterns are known high-volume or malformed alert descriptions.
+    _NOISE_PATTERNS = [
+        "VM Backup status: age= days",       # malformed — blank age field
+        "kernel entered failed state",        # systemd unit name missing — ambiguous
+        "unknown entered failed state",       # systemd unit name missing — ambiguous
+    ]
+    _noisy_rules = {}
+    _signal_rules = {}
+    for _rule_desc, _rule_count in _by_rule_raw.items():
+        if any(_pat in _rule_desc for _pat in _NOISE_PATTERNS):
+            _noisy_rules[_rule_desc] = _rule_count
+        else:
+            _signal_rules[_rule_desc] = _rule_count
+
     report["wazuh_alerts_last_24h"] = {
-        "by_level":  {str(b["key"]): b["doc_count"] for b in aggs.get("by_level", {}).get("buckets", [])},
-        "by_agent":  {b["key"]: b["doc_count"] for b in aggs.get("by_agent", {}).get("buckets", [])},
-        "by_rule":   {b["key"]: b["doc_count"] for b in aggs.get("by_rule", {}).get("buckets", [])},
+        "by_level":    {str(b["key"]): b["doc_count"] for b in aggs.get("by_level", {}).get("buckets", [])},
+        "by_agent":    {b["key"]: b["doc_count"] for b in aggs.get("by_agent", {}).get("buckets", [])},
+        "by_rule":     _signal_rules,
+        "by_rule_noisy_suppressed": _noisy_rules,
+        "noise_note":  (
+            f"{len(_noisy_rules)} rule description(s) suppressed from by_rule due to malformed/ambiguous text. "
+            "See by_rule_noisy_suppressed. Fix: run deploy-vmbackup-rules.sh to correct Wazuh rule 100600."
+        ) if _noisy_rules else None,
         "prometheus_bridge_by_alertname": {
             b["key"]: b["doc_count"]
             for b in prom_bridge.get("by_alertname", {}).get("buckets", [])
@@ -1042,9 +1467,32 @@ try:
             "rule_level":      ru.get("level", 0),
             "rule_description": ru.get("description", ""),
         })
+    _fim_total_events = fim_data.get("hits", {}).get("total", {}).get("value", 0)
+    _fim_status = "ok" if _fim_total_events >= 0 else "unknown"
+
+    # FIM coverage limits — detect agents at Wazuh's 100k file monitoring limit
+    _fim_coverage_limits = []
+    for r in pq('wazuh_fim_monitored_files'):
+        _fim_agent = r["metric"].get("agent", r["metric"].get("instance", ""))
+        _fim_count = int(float(r["value"][1]))
+        _fim_limit = 100000
+        if _fim_count >= _fim_limit:
+            _fim_coverage_limits.append({
+                "agent":            _fim_agent,
+                "monitored_files":  _fim_count,
+                "limit":            _fim_limit,
+                "status":           "warning",
+                "impact":           "Some FIM events may be lost after limit reached.",
+                "action_required":  "Review FIM scope/exclusions or increase limit if appropriate.",
+            })
+            _fim_status = "warning"
+
     report["wazuh_fim"] = {
+        "status":       _fim_status,
+        "last_checked": now,
+        "evidence_source": "wazuh-indexer:wazuh-alerts-4.x-*",
         "window":       "24h",
-        "total_events": fim_data.get("hits", {}).get("total", {}).get("value", 0),
+        "total_events": _fim_total_events,
         "actions": {
             "added":    actions.get("added",    0),
             "modified": actions.get("modified", 0),
@@ -1059,13 +1507,13 @@ try:
             for b in fa.get("by_agent", {}).get("buckets", [])
         ],
         "recent_events": recent_events,
+        "coverage_limits": _fim_coverage_limits,
     }
 except Exception as e:
     report["wazuh_fim"] = {"error": str(e), "window": "24h",
                             "total_events": 0, "actions": {"added": 0, "modified": 0, "deleted": 0}}
 
 # === Wazuh Vulnerability Detection ===
-# wazuh-states-vulnerabilities-* is present but has 0 docs (scanning not yet active)
 try:
     vuln_total = _wazuh_count({"query": {"match_all": {}}},
                                index="wazuh-states-vulnerabilities-*")
@@ -1082,12 +1530,30 @@ try:
         va = vd.get("aggregations", {})
         sevs = {b["key"].lower(): b["doc_count"]
                 for b in va.get("by_severity", {}).get("buckets", [])}
+        _v_crit = sevs.get("critical", 0)
+        _v_high = sevs.get("high",     0)
+        _v_med  = sevs.get("medium",   0)
+        _v_low  = sevs.get("low",      0)
+        _v_known_sum = _v_crit + _v_high + _v_med + _v_low
+        _v_unclassified = max(0, vuln_total - _v_known_sum)
+
+        _vuln_status = (
+            "critical" if _v_crit > 0 else
+            "warning"  if _v_high > 0 else
+            "watch"    if _v_med  > 0 else
+            "ok"
+        )
         report["wazuh_vulnerabilities"] = {
-            "total":    vuln_total,
-            "critical": sevs.get("critical", 0),
-            "high":     sevs.get("high",     0),
-            "medium":   sevs.get("medium",   0),
-            "low":      sevs.get("low",      0),
+            "status":                   _vuln_status,
+            "last_checked":             now,
+            "evidence_source":          "wazuh-indexer:wazuh-states-vulnerabilities-*",
+            "total":                    vuln_total,
+            "critical":                 _v_crit,
+            "high":                     _v_high,
+            "medium":                   _v_med,
+            "low":                      _v_low,
+            "unknown_or_unclassified":  _v_unclassified,
+            "severity_total_reconciled": (_v_known_sum == vuln_total),
             "top_packages": [
                 {"package": b["key"], "count": b["doc_count"]}
                 for b in va.get("by_package", {}).get("buckets", [])
@@ -1096,17 +1562,28 @@ try:
                 {"agent": b["key"], "count": b["doc_count"]}
                 for b in va.get("by_agent", {}).get("buckets", [])
             ],
+            "summary":         "Vulnerability scanning is active and returning significant findings.",
+            "action_required": "Prioritize critical and high vulnerabilities by affected agent.",
         }
     else:
         report["wazuh_vulnerabilities"] = {
+            "status":          "not_ready",
+            "last_checked":    now,
+            "evidence_source": "wazuh-indexer:wazuh-states-vulnerabilities-*",
             "total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
+            "unknown_or_unclassified": 0,
+            "severity_total_reconciled": True,
             "top_packages": [], "by_agent": [],
-            "note": "Vulnerability states index empty — scanning may not be configured"
+            "summary":         "Vulnerability states index is empty.",
+            "action_required": "Verify wazuh-modulesd vulnerability-scanner is running and indexer connector is active.",
         }
 except Exception as e:
     report["wazuh_vulnerabilities"] = {
+        "status": "unknown", "last_checked": now,
         "total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
-        "top_packages": [], "by_agent": [], "error": str(e)
+        "unknown_or_unclassified": 0, "severity_total_reconciled": False,
+        "top_packages": [], "by_agent": [], "error": str(e),
+        "summary": "Vulnerability data unavailable due to query error.",
     }
 
 # === Wazuh Security Configuration Assessment (SCA) ===
