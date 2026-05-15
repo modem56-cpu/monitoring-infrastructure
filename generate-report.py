@@ -440,6 +440,10 @@ report["akvorado"] = {
         "flow_bps":         round(scalar('rate(akvorado_inlet_flow_input_udp_bytes_total[5m])') or 0),
         "kafka_lag":        _kafka_lag,
         "kafka_lag_status": _kafka_lag_status,
+        "kafka_lag_delta_1h": int(scalar('delta(akvorado_outlet_kafka_consumergroup_lag_messages[1h])') or 0),
+        "clickhouse_errors_connect_total": int(scalar('akvorado_outlet_clickhouse_errors_total{error="connect"}') or 0),
+        "clickhouse_errors_send_total":    int(scalar('akvorado_outlet_clickhouse_errors_total{error="send"}') or 0),
+        "clickhouse_error_rate_5m":        round(scalar('rate(akvorado_outlet_clickhouse_errors_total[5m])') or 0, 6),
         "interpretation":   (
             "Components are up, but Kafka lag is high; this is a monitoring visibility backlog, not confirmed network outage."
             if _kafka_lag_status in ("warning", "critical")
@@ -454,6 +458,48 @@ report["akvorado"] = {
     "top_flows_full_export_path":   "http://192.168.10.20:8088/akvorado_top30_flows.json",
     "top_flows": _top_flows,
     **({"top_flows_error": _top_flows_err} if _top_flows_err else {}),
+}
+
+# === Network ARP Conflicts ===
+import datetime as _dtm
+_arp_conflicts_24h    = int(scalar('network_inventory_arp_conflicts_last_24h') or 0)
+_arp_conflicts_total  = int(scalar('network_inventory_arp_conflicts_total') or 0)
+_arp_events = []
+for _r in pq('network_inventory_arp_conflict_event'):
+    _m = _r["metric"]
+    try:
+        _ts = int(float(_r["value"][1]))
+        _event_time = _dtm.datetime.utcfromtimestamp(_ts).isoformat() + "Z"
+    except Exception:
+        _ts = 0
+        _event_time = None
+    _arp_events.append({
+        "_ts":        _ts,
+        "ip":         _m.get("ip", ""),
+        "old_mac":    _m.get("old_mac", ""),
+        "new_mac":    _m.get("new_mac", ""),
+        "vendor":     _m.get("vendor", ""),
+        "vlan":       _m.get("vlan", ""),
+        "event_time": _event_time,
+    })
+_arp_events.sort(key=lambda x: x["_ts"], reverse=True)
+_arp_recent = [{k: v for k, v in e.items() if k != "_ts"} for e in _arp_events[:10]]
+
+_arp_status = (
+    "critical" if _arp_conflicts_24h >= 3 else
+    "warning"  if _arp_conflicts_24h > 0  else
+    "ok"
+)
+
+report["network_arp"] = {
+    "status":             _arp_status,
+    "last_checked":       now,
+    "evidence_source":    "prometheus:network_inventory_arp_conflict_event",
+    "conflicts_last_24h": _arp_conflicts_24h,
+    "conflicts_total":    _arp_conflicts_total,
+    "summary":            f"{_arp_conflicts_24h} ARP conflict event(s) in last 24h across LAN VLAN ({_arp_conflicts_total} total observed).",
+    "interpretation":     "Randomized MAC addresses (iOS/Android privacy MAC rotation) are the most common cause. Verify no rogue device activity on the listed IPs.",
+    "recent_conflicts":   _arp_recent,
 }
 
 # === Fathom Vault Sync ===
@@ -698,12 +744,12 @@ def _fathom_section():
         "status":                       _inv_status,
         "inventory_exporter_ran":       _inv_exporter_ran,
         "inventory_last_success_unixtime": _inv_ts if _inv_ts > 0 else None,
-        "total_meetings":               _inv_total,
-        "complete":                     _inv_complete,
-        "with_issues":                  _inv_issues,
-        "missing_video":                _inv_vid,
-        "missing_transcript":           _inv_tr,
-        "missing_summary_actionable":   _inv_sum,
+        "total_meetings":               _inv_total  if _inv_exporter_ran else None,
+        "complete":                     _inv_complete if _inv_exporter_ran else None,
+        "with_issues":                  _inv_issues   if _inv_exporter_ran else None,
+        "missing_video":                _inv_vid      if _inv_exporter_ran else None,
+        "missing_transcript":           _inv_tr       if _inv_exporter_ran else None,
+        "missing_summary_actionable":   _inv_sum      if _inv_exporter_ran else None,
         "evidence_source":              "prometheus:fathom_recording_*",
         "summary":                      _inv_summary_text,
         "action_required":              _inv_action,
@@ -1470,22 +1516,36 @@ try:
     _fim_total_events = fim_data.get("hits", {}).get("total", {}).get("value", 0)
     _fim_status = "ok" if _fim_total_events >= 0 else "unknown"
 
-    # FIM coverage limits — detect agents at Wazuh's 100k file monitoring limit
+    # FIM coverage limits — query Wazuh alert index for rule 233 (FIM file limit reached).
+    # wazuh_fim_monitored_files Prometheus metric does not exist; use alert evidence instead.
     _fim_coverage_limits = []
-    for r in pq('wazuh_fim_monitored_files'):
-        _fim_agent = r["metric"].get("agent", r["metric"].get("instance", ""))
-        _fim_count = int(float(r["value"][1]))
-        _fim_limit = 100000
-        if _fim_count >= _fim_limit:
-            _fim_coverage_limits.append({
-                "agent":            _fim_agent,
-                "monitored_files":  _fim_count,
-                "limit":            _fim_limit,
-                "status":           "warning",
-                "impact":           "Some FIM events may be lost after limit reached.",
-                "action_required":  "Review FIM scope/exclusions or increase limit if appropriate.",
-            })
-            _fim_status = "warning"
+    _fim_limit_q = {
+        "size": 10,
+        "sort": [{"timestamp": {"order": "desc"}}],
+        "_source": ["timestamp", "agent.name", "agent.id", "rule.id", "rule.description", "rule.level"],
+        "query": {"bool": {"must": [
+            {"term": {"rule.id": "233"}},
+            {"range": {"timestamp": {"gte": "now-24h"}}}
+        ]}}
+    }
+    _fim_limit_data = _wazuh_query(_fim_limit_q)
+    for _fh in _fim_limit_data.get("hits", {}).get("hits", []):
+        _fs = _fh["_source"]
+        _fa = _fs.get("agent", {})
+        _fr = _fs.get("rule", {})
+        _fim_coverage_limits.append({
+            "agent":           _fa.get("name", ""),
+            "agent_id":        _fa.get("id", ""),
+            "monitored_files": 100000,
+            "limit":           100000,
+            "status":          "warning",
+            "rule_id":         _fr.get("id", ""),
+            "rule_level":      _fr.get("level", 0),
+            "event_time":      _fs.get("timestamp", ""),
+            "impact":          "FIM file limit reached — syscheck events may be dropped after this point.",
+            "action_required": "Review FIM scope/exclusions in ossec.conf or increase max_files_monitored.",
+        })
+        _fim_status = "warning"
 
     report["wazuh_fim"] = {
         "status":       _fim_status,
