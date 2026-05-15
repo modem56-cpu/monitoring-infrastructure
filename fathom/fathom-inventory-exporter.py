@@ -153,12 +153,32 @@ def run():
         col_info  = conn.execute("PRAGMA table_info(meetings)").fetchall()
         col_names = {row[1] for row in col_info}
 
-        # Build SELECT dynamically based on available columns
-        selects = ["m.id", "m.has_video", "m.has_transcript", "m.has_summary"]
+        # Build SELECT dynamically based on available columns.
+        # Schema (confirmed 2026-05-15): PK is call_id (TEXT), not id.
+        # account_email is a direct column; no accounts FK join needed.
+        selects = ["m.has_video", "m.has_transcript", "m.has_summary"]
         joins   = []
 
-        # Account email (via FK to accounts)
-        if "account_id" in col_names:
+        # Primary key — call_id (TEXT) is the canonical Fathom meeting ID
+        if "call_id" in col_names:
+            selects.insert(0, "m.call_id AS meeting_db_id")
+            selects.append("m.call_id AS fathom_meeting_id")
+        elif "id" in col_names:
+            selects.insert(0, "m.id AS meeting_db_id")
+            for _id_col in ("fathom_id", "meeting_id", "external_id", "uuid"):
+                if _id_col in col_names:
+                    selects.append(f"m.{_id_col} AS fathom_meeting_id")
+                    break
+            else:
+                selects.append("'' AS fathom_meeting_id")
+        else:
+            selects.insert(0, "rowid AS meeting_db_id")
+            selects.append("'' AS fathom_meeting_id")
+
+        # Account email — direct column or FK join
+        if "account_email" in col_names:
+            selects.append("m.account_email")
+        elif "account_id" in col_names:
             acct_cols = {r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
             if "email" in acct_cols:
                 selects.append("a.email AS account_email")
@@ -181,22 +201,20 @@ def run():
         else:
             selects.append("NULL AS started_at")
 
-        # Fathom-native meeting UUID / ID
-        for id_col in ("fathom_id", "meeting_id", "external_id", "uuid"):
-            if id_col in col_names:
-                selects.append(f"m.{id_col} AS fathom_meeting_id")
-                break
-        else:
-            selects.append("'' AS fathom_meeting_id")
+        # NAS folder/video paths (available in this schema)
+        selects.append("m.folder_path" if "folder_path" in col_names else "'' AS folder_path")
+        selects.append("m.video_path"  if "video_path"  in col_names else "'' AS video_path")
 
         # Accessible flag (controls whether missing summary is actionable)
         selects.append("m.accessible" if "accessible" in col_names else "1 AS accessible")
 
         join_clause = " ".join(joins)
+        # Order by PK descending — call_id (TEXT) in this schema, id (INTEGER) otherwise
+        _pk_order = "m.call_id DESC" if "call_id" in col_names else "m.id DESC"
         sql = (
             f"SELECT {', '.join(selects)} "
             f"FROM meetings m {join_clause} "
-            f"ORDER BY m.id DESC"
+            f"ORDER BY {_pk_order}"
         )
 
         rows_raw = conn.execute(sql).fetchall()
@@ -209,7 +227,7 @@ def run():
             rec       = dict(r)
             row_issues = classify_meeting(rec)
             entry = {
-                "meeting_db_id":     rec.get("id"),
+                "meeting_db_id":     rec.get("meeting_db_id"),
                 "fathom_meeting_id": str(rec.get("fathom_meeting_id") or ""),
                 "account_email":     str(rec.get("account_email")     or ""),
                 "title":             str(rec.get("title")             or ""),
@@ -218,6 +236,8 @@ def run():
                 "has_transcript":    bool(rec.get("has_transcript")),
                 "has_summary":       bool(rec.get("has_summary")),
                 "accessible":        bool(rec.get("accessible", True)),
+                "folder_path":       str(rec.get("folder_path")       or ""),
+                "video_path":        str(rec.get("video_path")        or ""),
                 "status":            "complete" if not row_issues else "issues",
                 "issues":            row_issues,
             }
@@ -279,7 +299,7 @@ def run():
         csv_fields = [
             "meeting_db_id", "fathom_meeting_id", "account_email", "title",
             "started_at", "has_video", "has_transcript", "has_summary",
-            "accessible", "status", "issues",
+            "accessible", "folder_path", "video_path", "status", "issues",
         ]
 
         def flatten(e):

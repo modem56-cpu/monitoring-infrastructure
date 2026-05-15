@@ -728,12 +728,29 @@ def _fathom_section():
 
     _inv_exporter_ran = _inv_ts > 0
 
-    # Check whether export files actually exist on disk (independent of Prometheus metrics)
+    # Check whether export files actually exist on disk (independent of Prometheus metrics).
+    # Files are the authoritative source — Prometheus metrics may lag by up to 5 minutes.
+    # When files exist, read actual counts from JSON to avoid showing stale -1/null values.
     _inv_json_path   = "/opt/monitoring/reports/fathom_recording_inventory.json"
     _inv_issues_path = "/opt/monitoring/reports/fathom_recording_issues.json"
     _inv_files_exist = os.path.isfile(_inv_json_path) and os.path.isfile(_inv_issues_path)
 
-    if not _inv_exporter_ran or not _inv_files_exist:
+    if _inv_files_exist:
+        try:
+            with open(_inv_json_path, "r", encoding="utf-8") as _inv_f:
+                _inv_file_data = json.load(_inv_f)
+            _inv_file_summary = _inv_file_data.get("summary", {})
+            _inv_total    = _inv_file_summary.get("total_meetings",             _inv_total)
+            _inv_complete = _inv_file_summary.get("complete",                   _inv_complete)
+            _inv_issues   = _inv_file_summary.get("with_issues",                _inv_issues)
+            _inv_vid      = _inv_file_summary.get("missing_video",              _inv_vid)
+            _inv_tr       = _inv_file_summary.get("missing_transcript",         _inv_tr)
+            _inv_sum      = _inv_file_summary.get("missing_summary_actionable", _inv_sum)
+            _inv_exporter_ran = True  # files exist on disk = exporter has run
+        except Exception:
+            pass  # fall back to Prometheus metrics if file is unreadable
+
+    if not _inv_files_exist:
         _inv_status = "not_ready"
         _inv_summary_text = (
             "Fathom sync is healthy, but per-recording inventory audit remains not ready "
