@@ -136,3 +136,69 @@ groups:
       category: fathom
     annotations:
       summary: "Fathom stale project-root fathom.db exists"
+
+  # ---------------------------------------------------------------
+  # Regression detection — offset-based historical comparison (6h)
+  # These fire when counts or coverage drop unexpectedly vs 6h ago.
+  # Requires 6h of Prometheus TSDB history for the alias metrics.
+  # ---------------------------------------------------------------
+
+  - alert: FathomSummaryCountDropped
+    expr: (fathom_summaries_total - fathom_summaries_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom summary count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomTranscriptCountDropped
+    expr: (fathom_transcripts_total - fathom_transcripts_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom transcript count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomVideoCountDropped
+    expr: (fathom_videos_total - fathom_videos_total offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom video count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomMeetingCountDropped
+    expr: (fathom_total_meetings - fathom_total_meetings offset 6h) < -100
+    for: 5m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom total meeting count dropped > 100 vs 6h ago — possible DB regression or rollback"
+
+  - alert: FathomSummaryCoverageDropped
+    expr: (fathom_summary_coverage_percent - fathom_summary_coverage_percent offset 6h) < -5
+    for: 15m
+    labels:
+      severity: critical
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom summary coverage dropped > 5% in 6h — investigate for DB regression or stale DB"
+
+  - alert: FathomDBFingerprintChanged
+    expr: fathom_db_fingerprint_changed == 1
+    for: 0m
+    labels:
+      severity: warning
+      category: fathom
+      event_type: regression_detection
+    annotations:
+      summary: "Fathom DB inode or checksum changed — possible file swap, restore, or DB replacement"

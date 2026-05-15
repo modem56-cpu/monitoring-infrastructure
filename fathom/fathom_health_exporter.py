@@ -293,6 +293,8 @@ def collect():
     has_summary_delta      = -1
     sqlite_integrity_ok    = -1
     regression_detected    = 0
+    fingerprint_changed    = -1
+    last_success_unixtime  = int(prev.get("last_success_unixtime", -1))
 
     if nas_mounted:
         # Verify DB path points to NAS (live guard)
@@ -329,6 +331,14 @@ def collect():
                     db_checksum_changed = 0  # no baseline yet
                 else:
                     db_checksum_changed = 0 if prev_checksum == current_checksum else 1
+
+                # Composite fingerprint: 1 if inode OR checksum changed
+                if db_inode_changed == 1 or db_checksum_changed == 1:
+                    fingerprint_changed = 1
+                elif db_inode_changed == -1 or db_checksum_changed == -1:
+                    fingerprint_changed = -1
+                else:
+                    fingerprint_changed = 0
 
                 # Size delta
                 if db_prev_size_bytes >= 0 and db_size_bytes >= 0:
@@ -444,6 +454,9 @@ def collect():
                     new_state["db_has_video"]        = has_video
                     new_state["db_has_transcript"]   = has_transcript
                     new_state["db_has_summary"]      = has_summary
+                    # Record timestamp of last successful DB query
+                    last_success_unixtime = int(time.time())
+                    new_state["last_success_unixtime"] = last_success_unixtime
 
                 # Latest sync age
                 sync_row = conn.execute(
@@ -643,6 +656,31 @@ def collect():
     lines += header("fathom_db_has_summary_delta",
                     "Change in has_summary count since last run (-1 if no baseline)")
     lines.append(metric("fathom_db_has_summary_delta", has_summary_delta))
+
+    # ---- Alias metrics — canonical names for regression detection alert rules
+    lines += header("fathom_total_meetings",
+                    "Total rows in the meetings table (alias for fathom_db_total_meetings)")
+    lines.append(metric("fathom_total_meetings", total))
+
+    lines += header("fathom_videos_total",
+                    "Meetings with video (alias for fathom_db_has_video)")
+    lines.append(metric("fathom_videos_total", has_video))
+
+    lines += header("fathom_transcripts_total",
+                    "Meetings with transcript (alias for fathom_db_has_transcript)")
+    lines.append(metric("fathom_transcripts_total", has_transcript))
+
+    lines += header("fathom_summaries_total",
+                    "Meetings with summary (alias for fathom_db_has_summary)")
+    lines.append(metric("fathom_summaries_total", has_summary))
+
+    lines += header("fathom_db_fingerprint_changed",
+                    "1 if DB inode or checksum changed since last run, -1 if unknown")
+    lines.append(metric("fathom_db_fingerprint_changed", fingerprint_changed))
+
+    lines += header("fathom_last_success_unixtime",
+                    "Unix timestamp of last successful DB query (-1 if never succeeded)")
+    lines.append(metric("fathom_last_success_unixtime", last_success_unixtime))
 
     lines += header("fathom_video_coverage_percent",
                     "Video coverage as a percentage of total meetings")

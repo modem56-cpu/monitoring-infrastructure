@@ -35,6 +35,13 @@ emit_fathom() {
     "$ts" "$1" "$2" "$3" "$4" "$5" >> "$LOGFILE"
 }
 
+emit_fathom_regression() {
+  # $1=alertname $2=severity $3=value $4=summary $5=description $6=delta
+  # Regression detection event — adds event_type and delta fields for Wazuh triage
+  printf '{"timestamp":"%s","source":"prometheus","category":"fathom","subsystem":"vault_sync","event_type":"regression_detection","alertname":"%s","instance":"192.168.10.24:9100","alias":"fathom-server","severity":"%s","value":"%s","delta":"%s","summary":"%s","description":"%s","dashboard":"fathom-vault-sync-ops","runbook":"Check Fathom count trends, DB fingerprint panels, and fathom_db_events.log"}\n' \
+    "$ts" "$1" "$2" "$3" "$6" "$4" "$5" >> "$LOGFILE"
+}
+
 # ============================================================
 # 1. Node Down (up == 0)
 # ============================================================
@@ -449,4 +456,100 @@ for r in data.get('data',{}).get('result',[]):
   emit_fathom "FathomAuditFlagsDetected" "warning" "$val" \
     "Fathom: ${val} account(s) have summary coverage below 60%" \
     "Review audit flags table in fathom-vault-sync-ops dashboard"
+done
+
+# ============================================================
+# 26. Fathom — Summary count dropped > 100 vs 6h ago
+# ============================================================
+query '(fathom_summaries_total - fathom_summaries_total offset 6h) < -100' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    delta = round(float(r['value'][1]))
+    print(f'{delta}')
+" 2>/dev/null | while read -r delta; do
+  emit_fathom_regression "FathomSummaryCountDropped" "critical" "$(query 'fathom_summaries_total' | python3 -c "import sys,json;d=json.load(sys.stdin);r=d.get('data',{}).get('result',[]); print(int(float(r[0]['value'][1]))) if r else print(-1)" 2>/dev/null)" \
+    "Fathom summary count dropped ${delta} vs 6h ago — possible DB regression or rollback" \
+    "Compare fathom_summaries_total against 6h offset — current DB may be stale or replaced" \
+    "$delta"
+done
+
+# ============================================================
+# 27. Fathom — Transcript count dropped > 100 vs 6h ago
+# ============================================================
+query '(fathom_transcripts_total - fathom_transcripts_total offset 6h) < -100' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    delta = round(float(r['value'][1]))
+    print(f'{delta}')
+" 2>/dev/null | while read -r delta; do
+  emit_fathom_regression "FathomTranscriptCountDropped" "critical" "$(query 'fathom_transcripts_total' | python3 -c "import sys,json;d=json.load(sys.stdin);r=d.get('data',{}).get('result',[]); print(int(float(r[0]['value'][1]))) if r else print(-1)" 2>/dev/null)" \
+    "Fathom transcript count dropped ${delta} vs 6h ago — possible DB regression or rollback" \
+    "Compare fathom_transcripts_total against 6h offset — current DB may be stale or replaced" \
+    "$delta"
+done
+
+# ============================================================
+# 28. Fathom — Video count dropped > 100 vs 6h ago
+# ============================================================
+query '(fathom_videos_total - fathom_videos_total offset 6h) < -100' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    delta = round(float(r['value'][1]))
+    print(f'{delta}')
+" 2>/dev/null | while read -r delta; do
+  emit_fathom_regression "FathomVideoCountDropped" "critical" "$(query 'fathom_videos_total' | python3 -c "import sys,json;d=json.load(sys.stdin);r=d.get('data',{}).get('result',[]); print(int(float(r[0]['value'][1]))) if r else print(-1)" 2>/dev/null)" \
+    "Fathom video count dropped ${delta} vs 6h ago — possible DB regression or rollback" \
+    "Compare fathom_videos_total against 6h offset — current DB may be stale or replaced" \
+    "$delta"
+done
+
+# ============================================================
+# 29. Fathom — Meeting count dropped > 100 vs 6h ago
+# ============================================================
+query '(fathom_total_meetings - fathom_total_meetings offset 6h) < -100' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    delta = round(float(r['value'][1]))
+    print(f'{delta}')
+" 2>/dev/null | while read -r delta; do
+  emit_fathom_regression "FathomMeetingCountDropped" "critical" "$(query 'fathom_total_meetings' | python3 -c "import sys,json;d=json.load(sys.stdin);r=d.get('data',{}).get('result',[]); print(int(float(r[0]['value'][1]))) if r else print(-1)" 2>/dev/null)" \
+    "Fathom total meeting count dropped ${delta} vs 6h ago — possible DB regression or rollback" \
+    "Compare fathom_total_meetings against 6h offset — current DB may be stale or replaced" \
+    "$delta"
+done
+
+# ============================================================
+# 30. Fathom — Summary coverage dropped > 5% vs 6h ago
+# ============================================================
+query '(fathom_summary_coverage_percent - fathom_summary_coverage_percent offset 6h) < -5' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    delta = round(float(r['value'][1]), 1)
+    print(f'{delta}')
+" 2>/dev/null | while read -r delta; do
+  val="$(query 'fathom_summary_coverage_percent' | python3 -c "import sys,json;d=json.load(sys.stdin);r=d.get('data',{}).get('result',[]); print(round(float(r[0]['value'][1]),1)) if r else print(-1)" 2>/dev/null)"
+  emit_fathom_regression "FathomSummaryCoverageDropped" "critical" "$val" \
+    "Fathom summary coverage dropped ${delta}% vs 6h ago (now ${val}%) — investigate for DB regression" \
+    "Coverage drop this large indicates data loss, wrong DB, or a rollback event" \
+    "$delta"
+done
+
+# ============================================================
+# 31. Fathom — DB fingerprint changed (inode or checksum)
+# ============================================================
+query 'fathom_db_fingerprint_changed == 1' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    print('changed')
+" 2>/dev/null | while read -r _; do
+  emit_fathom_regression "FathomDBFingerprintChanged" "warning" "1" \
+    "Fathom DB inode or checksum changed — possible file swap, restore, or DB replacement" \
+    "Check /var/lib/fathom-monitoring/fathom_db_events.log for db_inode_changed or db_checksum_changed events" \
+    "1"
 done

@@ -400,14 +400,42 @@ def _fathom_section():
     # DB-level alarm signals (inode swap and integrity failure are alarming;
     # checksum and size changes are captured by regression_detected but fire on
     # normal sync writes — use specific metrics instead of the composite flag)
-    inode_changed  = int(_s("fathom_db_inode_changed", 0))
-    integrity_fail = 1 if integrity == 0 else 0
-    size_decreased = 1 if (_s("fathom_db_size_delta_bytes", 0) or 0) < -1024 else 0
+    inode_changed      = int(_s("fathom_db_inode_changed", 0))
+    fingerprint_chg    = int(_s("fathom_db_fingerprint_changed", 0))
+    integrity_fail     = 1 if integrity == 0 else 0
+    size_decreased     = 1 if (_s("fathom_db_size_delta_bytes", 0) or 0) < -1024 else 0
+
+    # Regression detection — compare current vs 6h-ago using Prometheus offset
+    # Returns None until 6h of TSDB history exists for the alias metrics
+    def _offset_delta(metric_name):
+        """Return (current, previous, delta) or (None, None, None) if no history."""
+        cur = scalar(metric_name)
+        off = scalar(f"{metric_name} offset 6h")
+        if cur is None or off is None:
+            return None, None, None
+        return cur, off, round(cur - off, 2)
+
+    _sum_cur, _sum_6h, _sum_delta = _offset_delta("fathom_summaries_total")
+    _tr_cur,  _tr_6h,  _tr_delta  = _offset_delta("fathom_transcripts_total")
+    _vid_cur, _vid_6h, _vid_delta  = _offset_delta("fathom_videos_total")
+    _mtg_cur, _mtg_6h, _mtg_delta  = _offset_delta("fathom_total_meetings")
+    _cov_cur, _cov_6h, _cov_delta  = _offset_delta("fathom_summary_coverage_percent")
+
+    _sum_drop  = (_sum_delta  is not None and _sum_delta  < -100)
+    _tr_drop   = (_tr_delta   is not None and _tr_delta   < -100)
+    _vid_drop  = (_vid_delta  is not None and _vid_delta  < -100)
+    _mtg_drop  = (_mtg_delta  is not None and _mtg_delta  < -100)
+    _cov_drop  = (_cov_delta  is not None and _cov_delta  < -5)
+
+    _possible_regression = any([_sum_drop, _tr_drop, _vid_drop, _mtg_drop,
+                                 _cov_drop, bool(inode_changed), bool(fingerprint_chg)])
 
     # Determine overall status
     if not exporter_up or not nas_up:
         status = "critical"
     elif not guard or inode_changed or integrity_fail or size_decreased:
+        status = "critical"
+    elif _possible_regression:
         status = "critical"
     elif not sync_ok or sync_age > 43200:
         status = "warning"
@@ -475,6 +503,9 @@ def _fathom_section():
         "FathomExporterDown", "FathomNASUnmounted", "FathomDBRegressionDetected",
         "FathomSyncStaleCritical", "FathomSyncErrors", "FathomLoginIssuesDetected",
         "FathomLowCoverage", "FathomAuditFlagsDetected",
+        "FathomSummaryCountDropped", "FathomTranscriptCountDropped",
+        "FathomVideoCountDropped", "FathomMeetingCountDropped",
+        "FathomSummaryCoverageDropped", "FathomDBFingerprintChanged",
     ]
 
     return {
@@ -484,6 +515,7 @@ def _fathom_section():
         "db_live_guard_pass": bool(guard),
         "db_integrity_ok": integrity,
         "db_regression_detected": bool(regression),
+        "db_fingerprint_changed": bool(fingerprint_chg),
         "stale_local_db_exists": bool(stale_exists),
         "last_checked": now,
         "total_accounts": accts_total,
@@ -507,6 +539,31 @@ def _fathom_section():
         "audit_flags_count": audit_flags,
         "audit_flags": _audit_rows,
         "recent_sync_runs": _sync_runs,
+        "regression_detection": {
+            "history_available": _sum_cur is not None,
+            "summary_count_drop_detected": _sum_drop,
+            "transcript_count_drop_detected": _tr_drop,
+            "video_count_drop_detected": _vid_drop,
+            "meeting_count_drop_detected": _mtg_drop,
+            "coverage_drop_detected": _cov_drop,
+            "possible_db_regression": _possible_regression,
+            "db_fingerprint_changed": bool(fingerprint_chg),
+            "current_summaries": int(_sum_cur) if _sum_cur is not None else has_sum,
+            "summaries_6h_ago": int(_sum_6h) if _sum_6h is not None else None,
+            "summary_delta_6h": _sum_delta,
+            "current_summary_coverage_percent": _cov_cur if _cov_cur is not None else sum_pct,
+            "summary_coverage_6h_ago": round(_cov_6h, 1) if _cov_6h is not None else None,
+            "coverage_delta_6h": _cov_delta,
+            "current_meetings": int(_mtg_cur) if _mtg_cur is not None else total,
+            "meetings_6h_ago": int(_mtg_6h) if _mtg_6h is not None else None,
+            "meeting_delta_6h": _mtg_delta,
+            "current_videos": int(_vid_cur) if _vid_cur is not None else has_video,
+            "videos_6h_ago": int(_vid_6h) if _vid_6h is not None else None,
+            "video_delta_6h": _vid_delta,
+            "current_transcripts": int(_tr_cur) if _tr_cur is not None else has_tr,
+            "transcripts_6h_ago": int(_tr_6h) if _tr_6h is not None else None,
+            "transcript_delta_6h": _tr_delta,
+        },
         "alerts": {
             "prometheus_rules_enabled": True,
             "wazuh_forwarding_enabled": True,

@@ -319,6 +319,68 @@
   </rule>
 
   <!-- ================================================================
+       Regression detection events (event_type=regression_detection)
+       Offset-based historical comparison — fires when counts or coverage
+       drop significantly vs 6h ago in Prometheus TSDB.
+       ================================================================ -->
+
+  <!-- 200170: Base rule — any regression_detection event -->
+  <rule id="200170" level="7">
+    <if_sid>200155</if_sid>
+    <match>"event_type":"regression_detection"</match>
+    <description>Fathom: regression detection alert — historical count or coverage drop detected</description>
+    <group>fathom,fathom.regression_detection,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200171: Summary count dropped > 100 vs 6h ago -->
+  <rule id="200171" level="12">
+    <if_sid>200170</if_sid>
+    <match>FathomSummaryCountDropped</match>
+    <description>Fathom: summary count dropped more than 100 vs 6h ago — possible DB regression or rollback</description>
+    <group>fathom,fathom.regression.summary.dropped,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200172: Transcript count dropped > 100 vs 6h ago -->
+  <rule id="200172" level="12">
+    <if_sid>200170</if_sid>
+    <match>FathomTranscriptCountDropped</match>
+    <description>Fathom: transcript count dropped more than 100 vs 6h ago — possible DB regression or rollback</description>
+    <group>fathom,fathom.regression.transcript.dropped,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200173: Video count dropped > 100 vs 6h ago -->
+  <rule id="200173" level="12">
+    <if_sid>200170</if_sid>
+    <match>FathomVideoCountDropped</match>
+    <description>Fathom: video count dropped more than 100 vs 6h ago — possible DB regression or rollback</description>
+    <group>fathom,fathom.regression.video.dropped,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200174: Meeting count dropped > 100 vs 6h ago -->
+  <rule id="200174" level="12">
+    <if_sid>200170</if_sid>
+    <match>FathomMeetingCountDropped</match>
+    <description>Fathom: total meeting count dropped more than 100 vs 6h ago — possible DB regression or rollback</description>
+    <group>fathom,fathom.regression.meetings.dropped,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200175: Summary coverage dropped > 5% vs 6h ago -->
+  <rule id="200175" level="12">
+    <if_sid>200170</if_sid>
+    <match>FathomSummaryCoverageDropped</match>
+    <description>Fathom: summary coverage dropped more than 5% in 6h — investigate for stale DB or rollback</description>
+    <group>fathom,fathom.regression.coverage.dropped,prometheus_alert,</group>
+  </rule>
+
+  <!-- 200176: DB fingerprint changed (inode or checksum) -->
+  <rule id="200176" level="10">
+    <if_sid>200170</if_sid>
+    <match>FathomDBFingerprintChanged</match>
+    <description>Fathom: DB file inode or checksum changed — possible file swap, restore, or DB replacement event</description>
+    <group>fathom,fathom.regression.fingerprint.changed,prometheus_alert,</group>
+  </rule>
+
+  <!-- ================================================================
        DB integrity tracking events (from fathom_db_events.log)
        These are JSON events emitted by fathom_health_exporter.py
        ================================================================ -->

@@ -14,7 +14,7 @@
   },
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "panels": [
     {
       "id": 100,
@@ -1114,6 +1114,120 @@
       ]
     },
     {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Count Trend \u2014 Meetings, Videos, Transcripts, Summaries",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 8
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Summaries"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Meetings"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Videos"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transcripts"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "fathom_total_meetings",
+          "legendFormat": "Meetings",
+          "refId": "A"
+        },
+        {
+          "expr": "fathom_videos_total",
+          "legendFormat": "Videos",
+          "refId": "B"
+        },
+        {
+          "expr": "fathom_transcripts_total",
+          "legendFormat": "Transcripts",
+          "refId": "C"
+        },
+        {
+          "expr": "fathom_summaries_total",
+          "legendFormat": "Summaries",
+          "refId": "D"
+        }
+      ]
+    },
+    {
       "id": 103,
       "type": "row",
       "title": "DB Health",
@@ -2016,6 +2130,221 @@
           "expr": "fathom_db_mtime_unixtime",
           "instant": true,
           "legendFormat": "__auto",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "row",
+      "title": "Regression Detection (6h Historical Comparison)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Count Delta vs 6h Ago (negative = data loss)",
+      "description": "Alert fires when any series drops below -100. Requires 6h of TSDB history.",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 16,
+        "h": 8
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": -100
+              },
+              {
+                "color": "yellow",
+                "value": -10
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "fathom_summaries_total - fathom_summaries_total offset 6h",
+          "legendFormat": "Summary \u0394 (6h)",
+          "refId": "A"
+        },
+        {
+          "expr": "fathom_transcripts_total - fathom_transcripts_total offset 6h",
+          "legendFormat": "Transcript \u0394 (6h)",
+          "refId": "B"
+        },
+        {
+          "expr": "fathom_videos_total - fathom_videos_total offset 6h",
+          "legendFormat": "Video \u0394 (6h)",
+          "refId": "C"
+        },
+        {
+          "expr": "fathom_total_meetings - fathom_total_meetings offset 6h",
+          "legendFormat": "Meeting \u0394 (6h)",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "DB Fingerprint Changed",
+      "description": "1 = inode or checksum changed since last run \u2014 possible file swap or DB replacement",
+      "gridPos": {
+        "x": 16,
+        "y": 50,
+        "w": 8,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "No Change",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "CHANGED",
+                  "color": "red"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "Unknown",
+                  "color": "gray"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "fathom_db_fingerprint_changed",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Summary Coverage Drop vs 6h Ago",
+      "description": "Alert fires when coverage drops > 5% in 6h. Negative = coverage shrinking.",
+      "gridPos": {
+        "x": 16,
+        "y": 54,
+        "w": 8,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": -10
+              },
+              {
+                "color": "yellow",
+                "value": -5
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "fathom_summary_coverage_percent - fathom_summary_coverage_percent offset 6h",
+          "legendFormat": "Coverage \u0394 (6h)",
           "refId": "A"
         }
       ]
