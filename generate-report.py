@@ -61,6 +61,9 @@ if udm_up is not None:
 report["node_status"] = nodes
 
 # === System Metrics ===
+# Alias map from node_status (keyed by instance)
+_ALIAS_MAP = {inst: info.get("alias", "") for inst, info in nodes.items()}
+
 sys_m = {}
 for inst, val in labeled('instance:cpu_busy_percent:avg5m').items():
     sys_m.setdefault(inst, {})["cpu_5m_avg_pct"] = val
@@ -69,7 +72,8 @@ for inst, val in labeled('sys_sample_cpu_busy_percent').items():
 for inst, val in labeled('instance:memory_used_percent').items():
     sys_m.setdefault(inst, {})["memory_pct"] = val
 for inst, val in labeled('instance:swap_used_percent').items():
-    sys_m.setdefault(inst, {})["swap_pct"] = val
+    _sv = val
+    sys_m.setdefault(inst, {})["swap_pct"] = None if (_sv != _sv) else _sv  # drop NaN
 for inst, val in labeled('instance:rootfs_used_percent').items():
     sys_m.setdefault(inst, {})["disk_root_pct"] = val
 for inst, val in labeled('sys_sample_rootfs_used_percent').items():
@@ -77,7 +81,21 @@ for inst, val in labeled('sys_sample_rootfs_used_percent').items():
 for inst, val in labeled('instance:uptime_days').items():
     sys_m.setdefault(inst, {})["uptime_days"] = round(val, 1)
 
-# VPS
+# Windows node (win11-vm) — not covered by Linux recording rules
+_WIN_INST = "192.168.1.253:9182"
+_win_mem_free  = scalar(f'windows_os_physical_memory_free_bytes{{instance="{_WIN_INST}"}}')
+_win_mem_total = scalar(f'windows_cs_physical_memory_bytes{{instance="{_WIN_INST}"}}')
+_win_cpu       = scalar(f'100 - avg(rate(windows_cpu_time_total{{mode="idle",instance="{_WIN_INST}"}}[5m])) * 100')
+_win_disk_free  = scalar(f'windows_logical_disk_free_bytes{{volume="C:",instance="{_WIN_INST}"}}')
+_win_disk_total = scalar(f'windows_logical_disk_size_bytes{{volume="C:",instance="{_WIN_INST}"}}')
+if _win_cpu is not None or _win_mem_free is not None:
+    sys_m[_WIN_INST] = {
+        "cpu_5m_avg_pct": round(_win_cpu, 1) if _win_cpu is not None else None,
+        "memory_pct": round((1 - _win_mem_free / _win_mem_total) * 100, 1) if _win_mem_free and _win_mem_total else None,
+        "disk_root_pct": round((1 - _win_disk_free / _win_disk_total) * 100, 1) if _win_disk_free and _win_disk_total else None,
+    }
+
+# VPS (movement-strategy — external, SSH-polled)
 vps_cpu = scalar('vps_cpu_busy_percent{target="31.170.165.94"}')
 vps_mem_t = scalar('vps_mem_total_bytes{target="31.170.165.94"}')
 vps_mem_a = scalar('vps_mem_avail_bytes{target="31.170.165.94"}')
@@ -89,42 +107,94 @@ if vps_cpu is not None:
         "disk_root_pct": round(vps_disk, 1) if vps_disk else None,
     }
 
+# Annotate alias and last_checked
+for _inst in sys_m:
+    sys_m[_inst]["alias"] = _ALIAS_MAP.get(_inst, "")
+    sys_m[_inst]["last_checked"] = now
+
 report["system_metrics"] = sys_m
 
 # Capacity pressure classification per node
-_PRIORITY_ORDER = ["critical", "warning", "watch", "ok", "unknown"]
-def _pressure_status(cpu, mem, swap):
-    if mem is not None and mem > 90 and (swap or 0) > 50:
-        return "critical"
-    if (cpu is not None and cpu > 70) or (mem is not None and mem > 85) or (swap is not None and swap > 50):
-        return "warning"
-    if (cpu is not None and cpu > 60) or (mem is not None and mem > 75):
-        return "watch"
+# Thresholds: CPU ok<70/watch 70-84/warning 85-94/critical≥95
+#             Memory ok<75/watch 75-84/warning 85-94/critical≥95
+#             Disk ok<70/watch 70-79/warning 80-89/critical≥90
+#             Swap ok<30/watch 30-49/warning≥50
+_CP_THRESHOLDS = {
+    "cpu":    [("critical", 95), ("warning", 85), ("watch", 70)],
+    "memory": [("critical", 95), ("warning", 85), ("watch", 75)],
+    "swap":   [("critical", 90), ("warning", 50), ("watch", 30)],
+    "disk":   [("critical", 90), ("warning", 80), ("watch", 70)],
+}
+_CP_PRIORITY = ["critical", "warning", "watch", "ok"]
+
+def _cp_level(val, levels):
+    if val is None or val != val:  # None or NaN
+        return "ok"
+    for status, threshold in levels:
+        if val >= threshold:
+            return status
     return "ok"
 
-_capacity_pressure = {}
+def _cp_overall(cpu_s, mem_s, swp_s, disk_s):
+    for s in _CP_PRIORITY:
+        if s in (cpu_s, mem_s, swp_s, disk_s):
+            return s
+    return "ok"
+
+def _cp_action(cpu_s, mem_s, disk_s, swp_s):
+    parts = []
+    if cpu_s in ("warning", "critical"):
+        parts.append("Investigate high-CPU processes; check for runaway services.")
+    if mem_s == "critical":
+        parts.append("Memory critical — investigate consumers, consider restart or scale-up.")
+    elif mem_s == "warning":
+        parts.append("Review memory usage trend; check for leaks or high-memory services.")
+    elif mem_s == "watch":
+        parts.append("Monitor memory trend; no immediate action required.")
+    if disk_s == "critical":
+        parts.append("Disk critically full — free space immediately or expand storage.")
+    elif disk_s == "warning":
+        parts.append("Free disk space; review logs/archives or plan expansion.")
+    elif disk_s == "watch":
+        parts.append("Monitor disk growth; plan capacity expansion.")
+    if swp_s in ("warning", "critical"):
+        parts.append("High swap indicates memory pressure; review memory sizing.")
+    return " ".join(parts) if parts else "No immediate action required."
+
+_capacity_pressure_list = []
 for _inst, _m in sys_m.items():
-    _cpu = _m.get("cpu_current_pct") or _m.get("cpu_5m_avg_pct")
-    _mem = _m.get("memory_pct")
-    _swp = _m.get("swap_pct")
-    _ps  = _pressure_status(_cpu, _mem, _swp)
-    if _ps in ("warning", "critical", "watch"):
+    _cpu  = _m.get("cpu_5m_avg_pct") or _m.get("cpu_current_pct")
+    _mem  = _m.get("memory_pct")
+    _swp  = _m.get("swap_pct")
+    _disk = _m.get("disk_root_pct")
+    _alias = _m.get("alias", "")
+
+    _cpu_s  = _cp_level(_cpu,  _CP_THRESHOLDS["cpu"])
+    _mem_s  = _cp_level(_mem,  _CP_THRESHOLDS["memory"])
+    _swp_s  = _cp_level(_swp,  _CP_THRESHOLDS["swap"])
+    _disk_s = _cp_level(_disk, _CP_THRESHOLDS["disk"])
+    _ps = _cp_overall(_cpu_s, _mem_s, _swp_s, _disk_s)
+
+    if _ps != "ok":
         _contributors = []
-        if _cpu is not None and _cpu > 70:
-            _contributors.append(f"cpu {_cpu}%")
-        if _mem is not None and _mem > 85:
-            _contributors.append(f"memory {_mem}%")
-        if _swp is not None and _swp > 50:
-            _contributors.append(f"swap {_swp}%")
-        _capacity_pressure[_inst] = {
-            "status": _ps,
-            "cpu_pct": _cpu,
-            "memory_pct": _mem,
-            "swap_pct": _swp,
-            "contributors": _contributors,
-            "summary": "Operational but under resource pressure." if _ps != "critical" else "High resource pressure — services at risk.",
-        }
-report["capacity_pressure"] = _capacity_pressure
+        if _cpu_s  != "ok": _contributors.append(f"cpu {_cpu}% ({_cpu_s})")
+        if _mem_s  != "ok": _contributors.append(f"memory {_mem}% ({_mem_s})")
+        if _swp_s  != "ok": _contributors.append(f"swap {_swp}% ({_swp_s})")
+        if _disk_s != "ok": _contributors.append(f"disk {_disk}% ({_disk_s})")
+        _capacity_pressure_list.append({
+            "instance":       _inst,
+            "alias":          _alias,
+            "cpu_percent":    _cpu,
+            "memory_percent": _mem,
+            "swap_percent":   _swp,
+            "disk_percent":   _disk,
+            "status":         _ps,
+            "reason":         "; ".join(_contributors) if _contributors else _ps,
+            "action_required": _cp_action(_cpu_s, _mem_s, _disk_s, _swp_s),
+        })
+
+_capacity_pressure_list.sort(key=lambda x: _CP_PRIORITY.index(x["status"]))
+report["capacity_pressure"] = _capacity_pressure_list
 
 # === Firing Alerts ===
 # Group by alert name; include count + all firing instances to reduce noise
@@ -1837,6 +1907,6 @@ if len(sys.argv) > 1:
     up = sum(1 for n in report["node_status"].values() if n.get("up") == 1)
     total = len(report["node_status"])
     print(f"Report: {out} ({len(output)} bytes)")
-    print(f"Nodes: {up}/{total} up | Alerts: {len(alerts)} | Containers: {len(containers)} | GW users: {gw['users_active']}")
+    print(f"Nodes: {up}/{total} up | Alerts: {len(_alert_raw)} | Containers: {len(containers)} | GW users: {gw['users_active']}")
 else:
     print(output)
