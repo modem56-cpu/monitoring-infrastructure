@@ -354,6 +354,136 @@ report["akvorado"] = {
     **({"top_flows_error": _top_flows_err} if _top_flows_err else {}),
 }
 
+# === Fathom Vault Sync ===
+def _fathom_section():
+    def _s(q, default=-1):
+        v = scalar(q)
+        return default if v is None else v
+
+    def _labeled_metric(q, label):
+        """Return list of {label: val, value: val} dicts."""
+        out = []
+        for r in pq(q):
+            lv = r["metric"].get(label, "")
+            try:
+                out.append({label: lv, "value": float(r["value"][1])})
+            except Exception:
+                pass
+        return out
+
+    exporter_up = int(_s("fathom_exporter_success", 0))
+    total        = int(_s("fathom_db_total_meetings"))
+    has_video    = int(_s("fathom_db_has_video"))
+    has_tr       = int(_s("fathom_db_has_transcript"))
+    has_sum      = int(_s("fathom_db_has_summary"))
+    vid_pct      = _s("fathom_video_coverage_percent")
+    tr_pct       = _s("fathom_transcript_coverage_percent")
+    sum_pct      = _s("fathom_summary_coverage_percent")
+    sync_age     = int(_s("fathom_latest_sync_age_seconds"))
+    sync_ok      = int(_s("fathom_latest_sync_success", 0))
+    nas_up       = int(_s("fathom_nas_mounted", 0))
+    guard        = int(_s("fathom_db_live_guard_pass", 0))
+    regression   = int(_s("fathom_db_regression_detected", 0))
+    integrity    = int(_s("fathom_db_sqlite_integrity_ok", -1))
+    stale_exists = int(_s("fathom_stale_local_db_exists", 0))
+    accts_total  = int(_s("fathom_total_accounts"))
+    accts_conf   = int(_s("fathom_configured_accounts"))
+    accts_meet   = int(_s("fathom_accounts_with_meetings"))
+    login_issues = int(_s("fathom_login_issues_total", 0))
+    audit_flags  = int(_s("fathom_audit_flags_total", 0))
+    last_dur     = int(_s("fathom_last_sync_duration_seconds"))
+    last_new_m   = int(_s("fathom_last_sync_new_meetings"))
+    last_new_v   = int(_s("fathom_last_sync_new_videos"))
+    last_new_s   = int(_s("fathom_last_sync_new_summaries"))
+    last_errs    = int(_s("fathom_last_sync_errors_total"))
+
+    # Determine overall status
+    if not exporter_up or not nas_up:
+        status = "critical"
+    elif regression or not guard or not sync_ok:
+        status = "warning"
+    elif sync_age > 43200:   # 12 hours
+        status = "warning"
+    elif login_issues > 0 or audit_flags > 0:
+        status = "warning"
+    else:
+        status = "ok"
+
+    # Per-account audit flags (labeled metrics)
+    _audit_rows = []
+    for item in _labeled_metric('fathom_audit_flag_completion_percent', 'account'):
+        acct = item["account"]
+        pct = item["value"]
+        completed_r = pq(f'fathom_audit_flag_completed{{account="{acct}"}}')
+        expected_r  = pq(f'fathom_audit_flag_expected{{account="{acct}"}}')
+        completed_v = int(float(completed_r[0]["value"][1])) if completed_r else -1
+        expected_v  = int(float(expected_r[0]["value"][1]))  if expected_r  else -1
+        _audit_rows.append({
+            "account": acct,
+            "completion_percent": round(pct, 1),
+            "completed": completed_v,
+            "total": expected_v,
+        })
+    _audit_rows.sort(key=lambda x: x["completion_percent"])
+
+    # Recent sync runs (labeled metrics)
+    _sync_runs = []
+    _seen_started = set()
+    for item in _labeled_metric('fathom_sync_run_ok', 'started'):
+        started = item["started"]
+        if started in _seen_started:
+            continue
+        _seen_started.add(started)
+        _ok_v = int(item["value"])
+        _dur_r  = pq(f'fathom_sync_run_duration_seconds{{started="{started}"}}')
+        _newm_r = pq(f'fathom_sync_run_new_meetings{{started="{started}"}}')
+        _errs_r = pq(f'fathom_sync_run_errors{{started="{started}"}}')
+        _sync_runs.append({
+            "started": started,
+            "status": "success" if _ok_v == 1 else "failed",
+            "new_meetings": int(float(_newm_r[0]["value"][1])) if _newm_r else -1,
+            "duration_seconds": int(float(_dur_r[0]["value"][1])) if _dur_r else -1,
+            "errors": int(float(_errs_r[0]["value"][1])) if _errs_r else -1,
+        })
+    _sync_runs.sort(key=lambda x: x["started"], reverse=True)
+
+    return {
+        "status": status,
+        "exporter_up": bool(exporter_up),
+        "nas_mounted": bool(nas_up),
+        "db_live_guard_pass": bool(guard),
+        "db_integrity_ok": integrity,
+        "db_regression_detected": bool(regression),
+        "stale_local_db_exists": bool(stale_exists),
+        "last_checked": now,
+        "total_accounts": accts_total,
+        "configured_accounts": accts_conf,
+        "accounts_with_meetings": accts_meet,
+        "total_meetings": total,
+        "videos": has_video,
+        "transcripts": has_tr,
+        "summaries": has_sum,
+        "video_coverage_percent": vid_pct,
+        "transcript_coverage_percent": tr_pct,
+        "summary_coverage_percent": sum_pct,
+        "latest_sync_age_seconds": sync_age,
+        "latest_sync_success": bool(sync_ok),
+        "last_sync_duration_seconds": last_dur,
+        "last_sync_new_meetings": last_new_m,
+        "last_sync_new_videos": last_new_v,
+        "last_sync_new_summaries": last_new_s,
+        "last_sync_errors": last_errs,
+        "login_issues_count": login_issues,
+        "audit_flags_count": audit_flags,
+        "audit_flags": _audit_rows,
+        "recent_sync_runs": _sync_runs,
+    }
+
+try:
+    report["fathom_vault_sync"] = _fathom_section()
+except Exception as e:
+    report["fathom_vault_sync"] = {"error": str(e)}
+
 # === Google Workspace ===
 _gw_personal_bytes = scalar("gworkspace_org_storage_used_bytes") or 0
 _gw_shared_bytes   = scalar("gworkspace_org_shared_drive_bytes") or 0

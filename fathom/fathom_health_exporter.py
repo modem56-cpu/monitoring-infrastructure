@@ -266,6 +266,21 @@ def collect():
     sync_age       = -1
     sync_success   = 0
 
+    # Account / operational sentinels
+    total_accounts         = -1
+    configured_accounts    = -1
+    accounts_with_meetings = -1
+    login_issues_count     = -1
+    login_issues           = []
+    audit_flags_count      = -1
+    audit_flags            = []   # list of (email, total, completed)
+    sync_runs              = []   # list of run dicts
+    last_run_duration      = -1
+    last_run_new_meetings  = -1
+    last_run_new_videos    = -1
+    last_run_new_summaries = -1
+    last_run_errors        = -1
+
     # Delta / integrity sentinels (-1 = unknown/unavailable)
     db_prev_size_bytes     = int(prev.get("db_size_bytes", -1))
     db_size_delta          = -1
@@ -449,6 +464,99 @@ def collect():
                     except Exception:
                         sync_age = -1
                         sync_success = 0
+
+                # ---- Accounts ----
+                try:
+                    r = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()
+                    if r:
+                        total_accounts = int(r[0])
+                        configured_accounts = total_accounts
+                except Exception:
+                    pass
+                try:
+                    r = conn.execute(
+                        "SELECT COUNT(DISTINCT account_id) FROM meetings"
+                    ).fetchone()
+                    if r:
+                        accounts_with_meetings = int(r[0])
+                except Exception:
+                    pass
+
+                # ---- Login issues ----
+                for _sql in [
+                    "SELECT email FROM accounts WHERE login_status NOT IN ('ok','') AND login_status IS NOT NULL ORDER BY email LIMIT 50",
+                    "SELECT email FROM accounts WHERE last_login_error IS NOT NULL ORDER BY email LIMIT 50",
+                    "SELECT email FROM accounts WHERE has_login_error = 1 ORDER BY email LIMIT 50",
+                ]:
+                    try:
+                        _rows = conn.execute(_sql).fetchall()
+                        login_issues = [r[0] for r in _rows]
+                        login_issues_count = len(login_issues)
+                        break
+                    except Exception:
+                        continue
+                if login_issues_count == -1:
+                    login_issues_count = 0  # table exists but no issue column
+
+                # ---- Audit flags (accounts with < 60% summary coverage, ≥5 meetings) ----
+                try:
+                    _rows = conn.execute("""
+                        SELECT a.email, COUNT(m.id), COALESCE(SUM(m.has_summary), 0)
+                        FROM accounts a
+                        JOIN meetings m ON m.account_id = a.id
+                        GROUP BY a.id, a.email
+                        HAVING COUNT(m.id) >= 5
+                           AND (COALESCE(SUM(m.has_summary), 0) * 100.0 / COUNT(m.id)) < 60.0
+                        ORDER BY (COALESCE(SUM(m.has_summary), 0) * 1.0 / COUNT(m.id)) ASC
+                        LIMIT 20
+                    """).fetchall()
+                    audit_flags = [(r[0], int(r[1]), int(r[2])) for r in _rows]
+                    audit_flags_count = len(audit_flags)
+                except Exception:
+                    audit_flags_count = 0
+
+                # ---- Sync run history (last 10 runs) ----
+                _run_cols = [
+                    "started_at, completed_at, status, COALESCE(new_meetings,0), COALESCE(new_videos,0), COALESCE(new_summaries,0), COALESCE(new_transcripts,0), COALESCE(error_count,0)",
+                    "started_at, completed_at, status, COALESCE(new_meetings,0), COALESCE(new_videos,0), COALESCE(new_summaries,0), 0, COALESCE(errors,0)",
+                    "started_at, completed_at, status, 0, 0, 0, 0, 0",
+                ]
+                for _cols in _run_cols:
+                    try:
+                        _rows = conn.execute(
+                            f"SELECT {_cols} FROM sync_runs ORDER BY started_at DESC LIMIT 10"
+                        ).fetchall()
+                        from datetime import datetime as _dt
+                        for _r in _rows:
+                            _started, _completed, _status = _r[0], _r[1], _r[2]
+                            _new_m, _new_v, _new_s, _new_t, _errs = int(_r[3] or 0), int(_r[4] or 0), int(_r[5] or 0), int(_r[6] or 0), int(_r[7] or 0)
+                            _dur = -1
+                            try:
+                                _fmt = "%Y-%m-%dT%H:%M:%S" if "T" in (_started or "") else "%Y-%m-%d %H:%M:%S"
+                                _dur = int((_dt.strptime(_completed[:19], _fmt) - _dt.strptime(_started[:19], _fmt)).total_seconds())
+                            except Exception:
+                                pass
+                            sync_runs.append({
+                                "started": _started,
+                                "status": _status or "unknown",
+                                "new_meetings": _new_m,
+                                "new_videos": _new_v,
+                                "new_summaries": _new_s,
+                                "new_transcripts": _new_t,
+                                "errors": _errs,
+                                "duration_seconds": _dur,
+                            })
+                        # Last run details
+                        if sync_runs:
+                            last_run_duration  = sync_runs[0]["duration_seconds"]
+                            last_run_new_meetings = sync_runs[0]["new_meetings"]
+                            last_run_new_videos   = sync_runs[0]["new_videos"]
+                            last_run_new_summaries = sync_runs[0]["new_summaries"]
+                            last_run_errors        = sync_runs[0]["errors"]
+                        break
+                    except Exception:
+                        continue
+
             except sqlite3.OperationalError:
                 # DB locked or missing — keep sentinel values
                 db_guard = 0
@@ -555,6 +663,84 @@ def collect():
     lines += header("fathom_latest_sync_success",
                     "1 if last sync_run status was success")
     lines.append(metric("fathom_latest_sync_success", sync_success))
+
+    # ------------------------------------------------------------------ Accounts
+    lines += header("fathom_total_accounts", "Total accounts in the accounts table")
+    lines.append(metric("fathom_total_accounts", total_accounts))
+
+    lines += header("fathom_configured_accounts", "Accounts present in the DB (configured)")
+    lines.append(metric("fathom_configured_accounts", configured_accounts))
+
+    lines += header("fathom_accounts_with_meetings",
+                    "Distinct account_ids that have at least one meeting")
+    lines.append(metric("fathom_accounts_with_meetings", accounts_with_meetings))
+
+    lines += header("fathom_login_issues_total",
+                    "Accounts with login errors detected")
+    lines.append(metric("fathom_login_issues_total", login_issues_count))
+
+    lines += header("fathom_audit_flags_total",
+                    "Accounts with summary coverage < 60% (min 5 meetings)")
+    lines.append(metric("fathom_audit_flags_total", audit_flags_count))
+
+    # Per-account audit flag metrics (labeled, capped at 20)
+    if audit_flags:
+        lines += header("fathom_audit_flag_completion_percent",
+                        "Summary completion percent for flagged account")
+        lines += header("fathom_audit_flag_completed",
+                        "Meetings with summaries for flagged account")
+        lines += header("fathom_audit_flag_expected",
+                        "Total meetings for flagged account")
+        for email, total_m, completed_m in audit_flags:
+            pct = round(completed_m * 100.0 / total_m, 1) if total_m else 0
+            safe_email = email.replace('"', '').replace('\\', '')
+            lbl = {"account": safe_email}
+            lines.append(metric("fathom_audit_flag_completion_percent", pct, lbl))
+            lines.append(metric("fathom_audit_flag_completed", completed_m, lbl))
+            lines.append(metric("fathom_audit_flag_expected", total_m, lbl))
+
+    # ------------------------------------------------------------------ Last sync run details
+    lines += header("fathom_last_sync_duration_seconds",
+                    "Duration of the most recent sync run in seconds (-1 if unknown)")
+    lines.append(metric("fathom_last_sync_duration_seconds", last_run_duration))
+
+    lines += header("fathom_last_sync_new_meetings",
+                    "New meetings recorded in the most recent sync run")
+    lines.append(metric("fathom_last_sync_new_meetings", last_run_new_meetings))
+
+    lines += header("fathom_last_sync_new_videos",
+                    "New videos recorded in the most recent sync run")
+    lines.append(metric("fathom_last_sync_new_videos", last_run_new_videos))
+
+    lines += header("fathom_last_sync_new_summaries",
+                    "New summaries recorded in the most recent sync run")
+    lines.append(metric("fathom_last_sync_new_summaries", last_run_new_summaries))
+
+    lines += header("fathom_last_sync_errors_total",
+                    "Errors in the most recent sync run")
+    lines.append(metric("fathom_last_sync_errors_total", last_run_errors))
+
+    # Per-run labeled metrics (last 10 runs, keyed by started timestamp)
+    if sync_runs:
+        lines += header("fathom_sync_run_ok",
+                        "1 if sync run succeeded, 0 if failed (labeled by started)")
+        lines += header("fathom_sync_run_duration_seconds",
+                        "Duration in seconds for a sync run (labeled by started)")
+        lines += header("fathom_sync_run_new_meetings",
+                        "New meetings in a sync run (labeled by started)")
+        lines += header("fathom_sync_run_errors",
+                        "Errors in a sync run (labeled by started)")
+        for run in sync_runs:
+            safe_started = run["started"].replace('"', '')[:19]
+            lbl = {"started": safe_started}
+            lines.append(metric("fathom_sync_run_ok",
+                                1 if run["status"] == "success" else 0, lbl))
+            lines.append(metric("fathom_sync_run_duration_seconds",
+                                run["duration_seconds"], lbl))
+            lines.append(metric("fathom_sync_run_new_meetings",
+                                run["new_meetings"], lbl))
+            lines.append(metric("fathom_sync_run_errors",
+                                run["errors"], lbl))
 
     # ------------------------------------------------------------------ Systemd timers / services
     lines += header("fathom_sync_timer_active",

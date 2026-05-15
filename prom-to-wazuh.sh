@@ -320,3 +320,80 @@ for r in data.get('data',{}).get('result',[]):
 " 2>/dev/null | while read -r val; do
   emit "GWorkspaceUnapprovedSharedDriveAccess" "192.168.10.20:9100" "wazuh-server" "warning" "$val" "GWorkspace: ${val} shared drive(s) have external members but are not in the approved list"
 done
+
+# ============================================================
+# 18. Fathom — Exporter not reporting
+# ============================================================
+query 'fathom_exporter_success == 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    inst = r['metric'].get('instance','fathom-server')
+    print(f'{inst}')
+" 2>/dev/null | while read -r inst; do
+  emit "FathomExporterDown" "$inst" "fathom-server" "critical" "0" "Fathom health exporter reported failure on $inst"
+done
+
+# ============================================================
+# 19. Fathom — NAS not mounted
+# ============================================================
+query 'fathom_nas_mounted == 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    print('fathom-server')
+" 2>/dev/null | while read -r inst; do
+  emit "FathomNASUnmounted" "192.168.10.24:9100" "fathom-server" "critical" "0" "Fathom NAS SSHFS mount is not accessible — all sync services affected"
+done
+
+# ============================================================
+# 20. Fathom — DB regression detected
+# ============================================================
+query 'fathom_db_regression_detected == 1' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    print('detected')
+" 2>/dev/null | while read -r _; do
+  emit "FathomDBRegressionDetected" "192.168.10.24:9100" "fathom-server" "critical" "1" "Fathom DB regression detected — inode swap, checksum change, size decrease, or corruption"
+done
+
+# ============================================================
+# 21. Fathom — Sync stale (> 12h)
+# ============================================================
+query 'fathom_latest_sync_age_seconds > 43200' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  hours=$(echo "$val / 3600" | bc 2>/dev/null || echo "?")
+  emit "FathomSyncStaleCritical" "192.168.10.24:9100" "fathom-server" "critical" "$val" "Fathom sync stale — no successful sync in over ${hours}h"
+done
+
+# ============================================================
+# 22. Fathom — Login issues detected
+# ============================================================
+query 'fathom_login_issues_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "FathomLoginIssues" "192.168.10.24:9100" "fathom-server" "warning" "$val" "Fathom: ${val} account(s) have login errors"
+done
+
+# ============================================================
+# 23. Fathom — Sync errors in last run
+# ============================================================
+query 'fathom_last_sync_errors_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = r['value'][1]
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit "FathomSyncErrors" "192.168.10.24:9100" "fathom-server" "warning" "$val" "Fathom last sync run had ${val} error(s)"
+done
