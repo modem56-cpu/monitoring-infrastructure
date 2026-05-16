@@ -553,3 +553,48 @@ for r in data.get('data',{}).get('result',[]):
     "Check /var/lib/fathom-monitoring/fathom_db_events.log for db_inode_changed or db_checksum_changed events" \
     "1"
 done
+
+# ============================================================
+# 32. Fathom — Missing summaries backlog high (> 50 meetings)
+# ============================================================
+query 'fathom_recording_missing_summary_total > 50' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = int(float(r['value'][1]))
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit_fathom "FathomMissingSummariesBacklogHigh" "warning" "$val" \
+    "Fathom: ${val} meetings have transcripts but no summary — run --backfill-summaries" \
+    "Check /var/lib/fathom-monitoring/inventory/fathom_recording_issues.json for backfill targets"
+done
+
+# ============================================================
+# 33. Fathom — Recording inventory issues detected
+# ============================================================
+query 'fathom_recording_has_issues_total > 0' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    val = int(float(r['value'][1]))
+    print(f'{val}')
+" 2>/dev/null | while read -r val; do
+  emit_fathom "FathomRecordingInventoryIssuesDetected" "info" "$val" \
+    "Fathom: ${val} meetings have missing video/transcript/summary — review recording inventory" \
+    "Download inventory at http://192.168.10.20:8088/fathom_recording_issues.json?download=1"
+done
+
+# ============================================================
+# 34. Fathom — Inventory exporter stale (> 2 hours since last run)
+# ============================================================
+query '(time() - fathom_recording_inventory_last_success_unixtime) > 7200' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data.get('data',{}).get('result',[]):
+    age_h = round(float(r['value'][1]) / 3600, 1)
+    print(f'{age_h}')
+" 2>/dev/null | while read -r age_h; do
+  emit_fathom "FathomInventoryExporterStale" "warning" "$age_h" \
+    "Fathom inventory exporter has not run in ${age_h}h — check fathom-inventory-exporter.py timer on fathom-server" \
+    "Timer: fathom-inventory-exporter.timer — check systemctl status on fathom-server (192.168.10.24)"
+done

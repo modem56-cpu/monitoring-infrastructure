@@ -165,15 +165,19 @@ echo ""
 echo "=== Step 5: VM Backup rules (100600-100603) ==="
 cat > "$OSSEC/etc/rules/vmbackup.xml" << 'XML'
 <group name="vmbackup,backup,">
+  <!-- Rule 100600: base match for all vmbackup_vm log lines (informational).
+       NOTE: $(data) was previously used here for age_days but rendered blank
+       when the Wazuh 'data' field conflicted with internal Wazuh field naming.
+       Removed from base rule description — stale/empty child rules handle alerting. -->
   <rule id="100600" level="3">
     <decoded_as>vmbackup-status</decoded_as>
-    <description>VM Backup status: $(extra_data) age=$(data) days</description>
+    <description>VM Backup status check: $(extra_data)</description>
     <group>vmbackup,</group>
   </rule>
   <rule id="100601" level="10">
     <if_sid>100600</if_sid>
-    <match>age_days=8|age_days=9</match>
-    <description>WARNING: VM backup stale — $(extra_data)</description>
+    <match>age_days=8|age_days=9|age_days=1\d|age_days=2\d|age_days=3\d</match>
+    <description>WARNING: VM backup stale — $(extra_data) (age exceeds 8 days)</description>
     <group>vmbackup,stale,</group>
   </rule>
   <rule id="100602" level="12">
@@ -184,7 +188,7 @@ cat > "$OSSEC/etc/rules/vmbackup.xml" << 'XML'
   <rule id="100603" level="8">
     <if_sid>100600</if_sid>
     <match>size=0|latest=NONE</match>
-    <description>WARNING: VM backup for $(extra_data) empty</description>
+    <description>WARNING: VM backup for $(extra_data) — no disk image or empty backup</description>
     <group>vmbackup,empty,</group>
   </rule>
 </group>

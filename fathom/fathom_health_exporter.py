@@ -33,9 +33,11 @@ STALE_DB_PATH = "/opt/fathom-vault-sync/meeting_transcript_repository-master/fat
 PROM_PATH     = "/var/lib/prometheus/node-exporter/fathom_health.prom"
 PROM_DIR      = os.path.dirname(PROM_PATH)
 
-STATE_DIR       = "/var/lib/fathom-monitoring"
-STATE_PATH      = os.path.join(STATE_DIR, "fathom_db_state.json")
-WAZUH_EVENT_LOG = os.path.join(STATE_DIR, "fathom_db_events.log")
+STATE_DIR          = "/var/lib/fathom-monitoring"
+STATE_PATH         = os.path.join(STATE_DIR, "fathom_db_state.json")
+API_ERROR_STATE    = os.path.join(STATE_DIR, "fathom_api_errors.json")
+INVENTORY_STATE    = os.path.join(STATE_DIR, "fathom_inventory_state.json")
+WAZUH_EVENT_LOG    = os.path.join(STATE_DIR, "fathom_db_events.log")
 
 FLASK_HOST    = "127.0.0.1"
 FLASK_PORT    = 5000
@@ -115,6 +117,24 @@ def load_state():
     """Load previous DB state from STATE_PATH. Returns {} on any error."""
     try:
         with open(STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def load_api_error_state():
+    """Load API error counters written by sync.py. Returns {} on any error."""
+    try:
+        with open(API_ERROR_STATE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def load_inventory_state():
+    """Load recording inventory aggregate counts written by fathom-inventory-exporter.py."""
+    try:
+        with open(INVENTORY_STATE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -247,6 +267,12 @@ def collect():
     lines += header("fathom_stale_local_db_exists",
                     "1 if project-root fathom.db exists (should not)")
     lines.append(metric("fathom_stale_local_db_exists", stale_exists))
+
+    # ------------------------------------------------------------------ API error state (written by sync.py)
+    _api_err = load_api_error_state()
+    api_5xx_total          = int(_api_err.get("api_5xx_total", 0))
+    api_last_5xx_unixtime  = int(_api_err.get("api_last_5xx_unixtime", -1))
+    api_last_5xx_status    = int(_api_err.get("api_last_5xx_status", -1))
 
     # ------------------------------------------------------------------ Load previous state
     prev = load_state()
@@ -779,6 +805,60 @@ def collect():
                                 run["new_meetings"], lbl))
             lines.append(metric("fathom_sync_run_errors",
                                 run["errors"], lbl))
+
+    # ------------------------------------------------------------------ Recording inventory aggregate metrics
+    # Written by fathom-inventory-exporter.py (run hourly, separate script).
+    # Sentinel: -1 means exporter has never run or state file is absent.
+    _inv = load_inventory_state()
+    _inv_total    = int(_inv.get("inventory_total",       -1))
+    _inv_complete = int(_inv.get("inventory_complete",    -1))
+    _inv_vid      = int(_inv.get("missing_video",         -1))
+    _inv_tr       = int(_inv.get("missing_transcript",    -1))
+    _inv_sum      = int(_inv.get("missing_summary",       -1))
+    _inv_issues   = int(_inv.get("has_issues",            -1))
+    _inv_ts       = int(_inv.get("last_success_unixtime", -1))
+
+    lines += header("fathom_recording_inventory_total",
+                    "Total meetings in the recording inventory (-1 if inventory exporter never ran)")
+    lines.append(metric("fathom_recording_inventory_total", _inv_total))
+
+    lines += header("fathom_recording_complete_total",
+                    "Meetings with video, transcript, and summary (-1 if inventory exporter never ran)")
+    lines.append(metric("fathom_recording_complete_total", _inv_complete))
+
+    lines += header("fathom_recording_missing_video_total",
+                    "Meetings missing video (-1 if inventory exporter never ran)")
+    lines.append(metric("fathom_recording_missing_video_total", _inv_vid))
+
+    lines += header("fathom_recording_missing_transcript_total",
+                    "Meetings missing transcript (-1 if inventory exporter never ran)")
+    lines.append(metric("fathom_recording_missing_transcript_total", _inv_tr))
+
+    lines += header("fathom_recording_missing_summary_total",
+                    "Meetings with transcript but no summary — actionable backfill targets")
+    lines.append(metric("fathom_recording_missing_summary_total", _inv_sum))
+
+    lines += header("fathom_recording_has_issues_total",
+                    "Meetings with at least one missing artifact (-1 if inventory exporter never ran)")
+    lines.append(metric("fathom_recording_has_issues_total", _inv_issues))
+
+    lines += header("fathom_recording_inventory_last_success_unixtime",
+                    "Unix timestamp of last successful inventory export (-1 if never ran)")
+    lines.append(metric("fathom_recording_inventory_last_success_unixtime", _inv_ts))
+
+    # ------------------------------------------------------------------ API error metrics (written by sync.py)
+    lines += header("fathom_api_5xx_errors_total",
+                    "Cumulative Fathom API 5xx errors seen by the sync app (never resets)",
+                    mtype="counter")
+    lines.append(metric("fathom_api_5xx_errors_total", api_5xx_total))
+
+    lines += header("fathom_api_last_5xx_unixtime",
+                    "Unix timestamp of the most recent Fathom API 5xx error (-1 if none seen)")
+    lines.append(metric("fathom_api_last_5xx_unixtime", api_last_5xx_unixtime))
+
+    lines += header("fathom_api_last_5xx_status",
+                    "HTTP status code of the most recent 5xx error (-1 if none seen)")
+    lines.append(metric("fathom_api_last_5xx_status", api_last_5xx_status))
 
     # ------------------------------------------------------------------ Systemd timers / services
     lines += header("fathom_sync_timer_active",

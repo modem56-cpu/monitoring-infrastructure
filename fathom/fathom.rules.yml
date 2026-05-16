@@ -119,6 +119,15 @@ groups:
     annotations:
       summary: "Fathom last sync run reported errors"
 
+  - alert: FathomAPI5xxBurst
+    expr: increase(fathom_api_5xx_errors_total[1h]) > 10
+    for: 0m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom API returned >10 5xx errors in the last hour — possible rate limiting or outage"
+
   - alert: FathomRootDiskWarning
     expr: fathom_root_disk_used_percent > 85
     for: 15m
@@ -202,3 +211,35 @@ groups:
       event_type: regression_detection
     annotations:
       summary: "Fathom DB inode or checksum changed — possible file swap, restore, or DB replacement"
+
+  # ---------------------------------------------------------------
+  # Recording inventory — sourced from fathom-inventory-exporter.py
+  # Requires fathom-inventory-exporter.py to be running on fathom-server.
+  # ---------------------------------------------------------------
+
+  - alert: FathomInventoryExporterStale
+    expr: (time() - fathom_recording_inventory_last_success_unixtime) > 7200
+    for: 10m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom inventory exporter has not run successfully in 2+ hours"
+
+  - alert: FathomMissingSummariesBacklogHigh
+    expr: fathom_recording_missing_summary_total > 50
+    for: 30m
+    labels:
+      severity: warning
+      category: fathom
+    annotations:
+      summary: "Fathom: >50 meetings have transcripts but no summary — run --backfill-summaries"
+
+  - alert: FathomRecordingInventoryIssuesDetected
+    expr: fathom_recording_has_issues_total > 0
+    for: 1h
+    labels:
+      severity: info
+      category: fathom
+    annotations:
+      summary: "Fathom recording inventory has {{ $value }} meetings with missing artifacts — check fathom_recording_issues.json"
