@@ -1,7 +1,7 @@
 # Yokly / Agapay — Monitoring Platform: Restoration & Operations Guide
 
 **Classification:** Internal IT — Handoff & Recovery Package  
-**Last Updated:** 2026-05-14  
+**Last Updated:** 2026-05-15  
 **Maintained by:** Brian Monte (brian.monte@yokly.gives)  
 **Platform Admin:** IT Admin / System Owner  
 **Repository:** https://github.com/modem56-cpu/monitoring-infrastructure  
@@ -70,8 +70,10 @@ A fully on-premise infrastructure monitoring, security, and observability platfo
 | HR/IT alignment | Employee roster vs GW active accounts (4-category classification) | employee-gworkspace-reconcile.py |
 | Service account tracking | 17 approved shared/system GW accounts classified separately | approved_service_accounts.json |
 | Drive lifecycle | Shared Drive creation/deletion auto-detected and tracked | shared_drive_state.json (auto-updated 5 min) |
+| Drive security audit | External sharing audit — Shared Drives + My Drive per user | gworkspace-drive-audit.py (on-demand) |
+| Fathom recording audit | 12,450 meeting recordings tracked; artifact coverage per account | fathom-inventory-exporter.py (hourly, fathom-server) |
 | Alerting | Prometheus rules → Alertmanager email; Wazuh native | alertmanager.yml + Gmail SMTP |
-| AI/leadership reports | monitoring_report.json includes 7 Wazuh SIEM sections | generate-report.py (every 5 min) |
+| AI/leadership reports | monitoring_report.json — system_metrics (all nodes + Windows), capacity_pressure (structured list), 7 Wazuh SIEM sections | generate-report.py (every 5 min) |
 
 ---
 
@@ -83,11 +85,14 @@ A fully on-premise infrastructure monitoring, security, and observability platfo
 Host:     192.168.10.20
 Hostname: wazuh-server
 OS:       Ubuntu 24.04 LTS
-RAM:      7.8 GB (tight — see memory budget)
+RAM:      7.8 GB (tight — memory at ~87% warning, sustained; swap ~65% warning)
 Swap:     8.0 GB (/swap.img 4 GB + /swap2.img 4 GB)
 CPU:      4 cores
 Disk:     ~500 GB (389 GB free as of April 2026)
 Role:     Monitoring hub + SIEM manager + NetFlow pipeline
+
+⚠ MEMORY PRESSURE: wazuh-server is the only node classified [warning] in
+  capacity_pressure (memory + swap both elevated). RAM upgrade recommended.
 ```
 
 ### Full Architecture Diagram
@@ -148,8 +153,21 @@ Role:     Monitoring hub + SIEM manager + NetFlow pipeline
 │ unraid-tower  │  │  vm-devops    │  │ fathom-vault  │  │  win11-vm     │
 │ 192.168.10.10 │  │ 192.168.5.131 │  │ 192.168.10.24 │  │ 192.168.1.253 │
 │ :9100 NE      │  │ :9100 NE      │  │ :9100 NE      │  │ :9182 WE      │
-│ Wazuh 002     │  │ Wazuh 001     │  │ Wazuh 006     │  │ Wazuh 004     │
-└───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘
+│ mem 77% watch │  │ disk 70% watch│  │ health export │  │ WE metrics    │
+│ Wazuh 002     │  │ Wazuh 001     │  │ inv export    │  │ Wazuh 004     │
+└───────────────┘  └───────────────┘  └──────┬────────┘  └───────────────┘
+                                              │
+                                 ┌────────────┴────────────┐
+                                 │  fathom-server exporters │
+                                 │  fathom_health_exporter  │
+                                 │  fathom-inventory-export │
+                                 │  → /var/lib/fathom-mon/  │
+                                 │    ├─ fathom_inventory_  │
+                                 │    │  state.json          │
+                                 │    └─ inventory/*.json   │
+                                 │  ← sync via SSH cron     │
+                                 │    (*/15 min, id_fathom) │
+                                 └─────────────────────────┘
 
 ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
 │movement-strat │  │  UDM Pro      │  │Google Workspace│
@@ -167,27 +185,38 @@ COLLECTION                    STORAGE                   VISUALIZATION
 ──────────                    ───────                   ─────────────
 
 node_exporter ──────────────► Prometheus TSDB ────────► Grafana
-textfile/*.prom (10 files) ──►  (prometheus_data vol)   (16 dashboards)
+textfile/*.prom (10 files) ──►  (prometheus_data vol)   (17 dashboards)
 gworkspace-collector v3 ────►   30d retention           ────────────────
   (5min: users, drives,    ──►                          Security Ops Center
    lifecycle state tracking)                            Employee Reconcile
 employee-reconcile ──────────►                          Google Workspace
   (4-category classification)►                          Export Reports
-network-devices (ARP) ───────►                          + 12 more
-sys-sample-prom.sh ──────────►
-vps SSH pull ────────────────►
+network-devices (ARP) ───────►                          Fleet Overview
+sys-sample-prom.sh ──────────►                          Alert Command Center
+vps SSH pull ────────────────►                          Fathom Vault Sync
+windows_exporter :9182 ──────►                          + 10 more
+fathom_health_exporter.py ───►
+  (on fathom-server, 5 min) ─►
+fathom-inventory-exporter ───► /var/lib/fathom-mon/
+  (on fathom-server, hourly)─► inventory/*.json ──────► :8088 (4 files)
+  SSH sync every 15 min ──────► /opt/monitoring/reports/
 
 UDM Pro NetFlow/IPFIX ───────► Kafka ──► ClickHouse ──► Akvorado Console
                                                          (:8082)
 
-Wazuh agents (5 active) ────► Wazuh Indexer ──────────► Grafana
+Wazuh agents (6 active) ────► Wazuh Indexer ──────────► Grafana
 Prom-to-Wazuh bridge ────────►  (OpenSearch 9200)        (Security Ops Center
-Employee reconcile log ──────►  wazuh-alerts-4.x-*       Elasticsearch DS)
+  (33 check rules)           ►  wazuh-alerts-4.x-*       Elasticsearch DS)
+Employee reconcile log ──────►
 Network inventory log ────────►
 
 All above ───────────────────► monitoring_report.json ──► AI agent ingestion
-                                (:8088, every 5min)        (7 Wazuh sections +
-                                                            GW lifecycle data)
+                                (:8088, every 5min)        system_metrics (all nodes
+                                                            + Windows + aliases)
+                                                           capacity_pressure (list,
+                                                            proper thresholds)
+                                                           7 Wazuh SIEM sections
+                                                           GW lifecycle + Fathom
 ```
 
 ### Grafana Datasources
@@ -201,14 +230,16 @@ All above ───────────────────► monitorin
 
 > **CRITICAL — Grafana dashboard API push:** Template variables `${DS_PROMETHEUS}` and `${DS_WAZUH_INDEXER}` in dashboard JSON are resolved **only during Grafana UI import**, never by the REST API. When pushing dashboards via API, always substitute before posting: `${DS_PROMETHEUS}` → `afiwke54zcjcwe`, `${DS_WAZUH_INDEXER}` → `ffk7yn7hg1k3ka`. If panels show "No data" after API push, this is the cause. The Phase 6 restore script handles this automatically.
 
-### Grafana Dashboards (16, as of 2026-05-14)
+### Grafana Dashboards (17, as of 2026-05-15)
 
-| UID | Title | Datasource | Key Panels |
+| File / UID | Title | Datasource | Key Panels |
 |---|---|---|---|
 | `security-ops-center` | Security Operations Center | Both | Prometheus alerts + Wazuh live events — PRIMARY SOC VIEW |
-| `export-reports` | Export Reports | Both | All tables exportable CSV, JSON download link; includes GW Shared Drive Lifecycle section |
+| `export-reports` | Export Reports | Both | All tables exportable CSV, JSON download link; GW Shared Drive Lifecycle; **Fleet Resource Usage (IDs 85-91)** |
+| `alert-command-center` | Alert Command Center | Both | Unified alert triage; cross-platform alert view |
 | `employee-reconcile` | Employee ↔ GWorkspace | Prometheus | 4-category classification: matched/service_account/admin/orphan |
-| `fleet-overview` | Fleet Overview | Prometheus | All nodes health summary |
+| `fleet-overview` | Fleet Overview | Prometheus | All nodes health summary — CPU/Mem/Disk/Swap per host |
+| `fathom-vault-sync-dashboard` | Fathom Vault Sync | Both | Sync health, recording coverage %, inventory stats, SIEM alerts |
 | `google-workspace` | Google Workspace | Prometheus | Users, storage, Drive, admin events; sharing policy breakdown |
 | `network-inventory` | Network Inventory & MAC Map | Prometheus | ARP devices, new devices, ARP conflicts |
 | `docker-containers` | Docker Containers & APIs | Prometheus | Container health, API probes |
@@ -217,10 +248,9 @@ All above ───────────────────► monitorin
 | `vm-backups` | VM Backups (Unraid) | Prometheus | Backup age, size, health |
 | `html-reports` | HTML Reports Hub | — | Embedded HTML dashboard iframes |
 | `node-exporter-full` | Node Exporter Full | Prometheus | Deep Linux per-host |
-| `windows-exporter` | Windows Exporter | Prometheus | Windows VM metrics |
+| `windows-exporter` | Windows Exporter | Prometheus | Windows VM metrics (192.168.1.253:9182) |
 | `vps-movement-strategy` | Movement Strategy (VPS) | Prometheus | External VPS via SSH pull |
-| `shared-drives` | Shared Drives Audit | Prometheus | Drive approval status, external members, violations |
-| `wazuh-siem` | Wazuh SIEM Overview | Wazuh Indexer | Alerts by level/agent/rule, MITRE ATT&CK, FIM, SCA scores |
+| `wazuh-security-events` | Wazuh Security Events | Wazuh Indexer | Alerts by level/agent/rule, MITRE ATT&CK, FIM, SCA scores |
 
 > **CRITICAL — Dashboard API import:** `${DS_PROMETHEUS}` and `${DS_WAZUH_INDEXER}` are Grafana UI import-time template variables — they are **never resolved by the REST API**. Always substitute with actual UIDs before pushing via API: `${DS_PROMETHEUS}` → `afiwke54zcjcwe`, `${DS_WAZUH_INDEXER}` → `ffk7yn7hg1k3ka`. See Phase 6 restore procedure.
 
@@ -258,8 +288,26 @@ Key metric namespaces:
   network_device_*              — ARP network inventory (per device, per VLAN)
   network_inventory_*           — ARP collector state (baseline, discovered, conflicts)
   akvorado_*                    — NetFlow pipeline health
+  fathom_*                      — Fathom Vault Sync health + recording inventory (60 metrics)
+    fathom_recording_inventory_total          — total meetings tracked (12,450 as of May 2026)
+    fathom_recording_complete_total           — meetings with all 3 artifacts
+    fathom_recording_has_issues_total         — meetings with any missing artifact
+    fathom_recording_missing_video_total      — meetings missing video
+    fathom_recording_missing_transcript_total — meetings missing transcript
+    fathom_recording_missing_summary_total    — meetings with transcript but no summary (backfill targets)
+    fathom_recording_inventory_last_success_unixtime — timestamp of last successful inventory run
+    fathom_video_coverage_percent / fathom_transcript_coverage_percent / fathom_summary_coverage_percent
+    fathom_api_5xx_errors_total / fathom_api_last_5xx_status — API error tracking
+    fathom_db_* (16 metrics)    — SQLite DB health, checksum, inode, regression detection
+    fathom_sync_run_* (5 metrics) — per-run sync stats
   ALERTS{alertstate=}           — Live Prometheus alert state
   up{}                          — Scrape target health (1=up, 0=down)
+
+Prometheus rule counts (as of 2026-05-15):
+  Alert rules:     72  (across 8 rule files: infrastructure, gworkspace, akvorado,
+                        containers, blackbox, network_inventory, fathom, recording)
+  Recording rules: 20  (recording.rules.yml — fast-query aggregates for Fleet Overview)
+  Scrape targets:  23  (all Up as of 2026-05-15)
 ```
 
 ### Wazuh Indexer (OpenSearch 7.10.2)
@@ -285,9 +333,10 @@ Key fields:
   GeoLocation.*         — IP geolocation (login events)
 
 Custom rule ID ranges:
-  100300–100307   Prometheus alert bridge (prom-to-wazuh.sh)
+  100300–100307   Prometheus alert bridge (prom-to-wazuh.sh — 33 check rules)
   100400–100407   UDM Pro firewall events
   100500–100508   Google Workspace events
+  100600–100603   VM backup status (rule 100601 fixed May 2026 — regex for all stale ages)
   100700–100707   Network inventory (ARP, new device, conflict)
   100800–100807   Employee ↔ GWorkspace reconciliation
   100809          Authorized GW admin (override — level 3)
@@ -365,11 +414,31 @@ WARNING: trace_log was disabled April 2026 — was generating 3.8 GB/day.
   — Edit to name unnamed devices; applied within 5 min
 
 /opt/monitoring/dashboards/*.json
-  — Portable Grafana dashboard exports (16 files)
+  — Portable Grafana dashboard exports (17 files as of 2026-05-15)
   — Used by monitoring_report.json AI payload
   — WARNING: ${DS_PROMETHEUS} and ${DS_WAZUH_INDEXER} must be replaced with actual UIDs
     before REST API push (afiwke54zcjcwe and ffk7yn7hg1k3ka respectively)
   — The export-reports.json already has UIDs hardcoded (not template vars)
+  — export-reports.json: contains Fleet Resource Usage section (panel IDs 85-91)
+    with Linux (CPU/Mem/Swap/Disk) and Windows (CPU/Mem/Disk C:) tables
+
+ON FATHOM-SERVER (192.168.10.24):
+/var/lib/fathom-monitoring/
+  fathom_inventory_state.json    — Aggregate recording counts (read by health exporter → Prometheus)
+  fathom_db_state.json           — DB state (checksum, inode, size — regression detection)
+  fathom_api_errors.json         — API 5xx error counts (read by health exporter)
+  inventory/
+    fathom_recording_inventory.json  — Full per-meeting recording status (all 12,450 meetings)
+    fathom_recording_inventory.csv   — CSV version of above
+    fathom_recording_issues.json     — Meetings with missing artifacts (2,151 meetings)
+    fathom_recording_issues.csv      — CSV version of above
+
+ON MONITORING SERVER (synced from fathom-server every 15 min):
+/opt/monitoring/reports/
+  fathom_recording_inventory.json  — Served at :8088 for download
+  fathom_recording_inventory.csv
+  fathom_recording_issues.json
+  fathom_recording_issues.csv
 ```
 
 ---
@@ -511,6 +580,88 @@ monitoring_report.json → google_workspace.shared_drive_summary
                        → google_workspace.deleted_shared_drives
 ```
 
+### Fathom Recording Inventory Pipeline
+
+```
+fathom-server (192.168.10.24)
+         │
+         │  fathom-inventory-exporter.py (hourly systemd timer)
+         │    reads: /opt/fathom-vault-sync/nas/fathom.db (SQLite, read-only)
+         │    schema: PK = call_id (TEXT), account_email (direct column)
+         │           has_video, has_transcript, has_summary (boolean)
+         │           folder_path, video_path (NAS artifact paths)
+         │
+         ▼
+/var/lib/fathom-monitoring/
+  fathom_inventory_state.json    ←── read by fathom_health_exporter.py
+  inventory/
+    fathom_recording_inventory.json  (12,450 meetings)
+    fathom_recording_inventory.csv
+    fathom_recording_issues.json     (2,151 meetings with issues)
+    fathom_recording_issues.csv
+         │
+         │  sync-inventory-from-fathom.sh (cron, every 15 min on monitoring server)
+         │  SSH_KEY=~/.ssh/id_fathom  SCP from fathom-admin@192.168.10.24
+         │
+         ▼
+/opt/monitoring/reports/               → served at http://192.168.10.20:8088/
+  fathom_recording_inventory.json      (Content-Disposition: attachment)
+  fathom_recording_inventory.csv
+  fathom_recording_issues.json
+  fathom_recording_issues.csv
+         │
+         │  generate-report.py (every 5 min)
+         │    reads JSON files directly (bypasses Prometheus scrape lag)
+         │    populates: fathom_recording section in monitoring_report.json
+         │
+         ▼
+fathom_health_exporter.py (fathom-server)
+  reads: fathom_inventory_state.json → emits fathom_recording_* metrics
+  reads: fathom_api_errors.json      → emits fathom_api_5xx_errors_total
+         │
+         │  Prometheus scrape :9100 (via node_exporter textfile_collector)
+         ▼
+Grafana Fathom Vault Sync Dashboard → recording coverage %, backfill targets
+Grafana Export Reports → Fathom Recording Inventory section (download links)
+```
+
+### Fleet Resource Usage Pipeline (system_metrics / capacity_pressure)
+
+```
+Prometheus recording rules (20 rules in recording.rules.yml):
+  instance:cpu_busy_percent:avg5m  — Linux CPU 5m avg (all Linux nodes)
+  instance:memory_used_percent     — Linux memory %
+  instance:swap_used_percent       — Linux swap %
+  instance:rootfs_used_percent     — Linux disk %
+
+Windows node (192.168.1.253:9182) — NOT covered by recording rules:
+  windows_cpu_time_total{mode="idle"} → CPU 5m avg
+  windows_os_physical_memory_free_bytes / windows_cs_physical_memory_bytes → Memory %
+  windows_logical_disk_free_bytes{volume="C:"} / windows_logical_disk_size_bytes → Disk C: %
+
+generate-report.py (every 5 min) assembles:
+  system_metrics[instance] = {
+    alias, last_checked,
+    cpu_5m_avg_pct, memory_pct, swap_pct (null if NaN), disk_root_pct
+  }
+  capacity_pressure = [LIST, sorted by severity] {
+    instance, alias, cpu_percent, memory_percent, swap_percent, disk_percent,
+    status, reason, action_required
+  }
+
+Thresholds used:
+  CPU:    ok<70 / watch 70-84 / warning 85-94 / critical≥95
+  Memory: ok<75 / watch 75-84 / warning 85-94 / critical≥95
+  Disk:   ok<70 / watch 70-79 / warning 80-89 / critical≥90
+  Swap:   ok<30 / watch 30-49 / warning≥50
+
+Export Reports dashboard — Fleet Resource Usage (panel IDs 85-91):
+  Stat: Nodes under memory pressure / Nodes with disk≥70% / Peak memory / Peak disk
+  Table ID 90: Linux nodes — CPU/Mem/Swap/Disk % (recording rules, CSV-exportable)
+  Table ID 91: Windows nodes — CPU/Mem/Disk C: % (windows_* metrics, CSV-exportable)
+  All columns color-coded by threshold
+```
+
 ### monitoring_report.json Structure (Wazuh sections)
 
 `generate-report.py` runs every 5 min and includes these Wazuh sections sourced directly from Wazuh Indexer (`https://172.18.0.1:9200`):
@@ -595,6 +746,13 @@ Google Workspace:
   Scopes: Admin Reports v1, Directory v1, Alert Center, Drive v3
   Admin impersonation: brian.monte@yokly.gives
 
+Google Drive External Sharing Audit (gworkspace-drive-audit.py):
+  On-demand script — run manually, not via systemd timer
+  Outputs to: /opt/monitoring/reports/drive-audit/ (CSV files)
+  Audit types: Shared Drives + optional My Drive per user
+  Classifies findings against /opt/monitoring/approved_external_shared_drives.json
+  Safe: read-only, never modifies permissions
+
 Google Sheets (employees):
   Sheet ID: 1gmXUiOgwqEc1yMtX9DmNJbckzJE9IWiHpVtJU02y58o
   Sheet name: "Employees"
@@ -606,6 +764,19 @@ WireGuard VPN (to VPS):
   Tunnel: 10.253.2.22 (movement-strategy)
   Endpoint: vpn.yoklyu.gives:51822
   SSH user: metrics (forced command, key-only auth)
+
+Fathom-server (192.168.10.24):
+  Access: SSH key at /home/wazuh-admin/.ssh/id_fathom
+  SSH user: fathom-admin
+  Purpose: SCP inventory files every 15 min (sync-inventory-from-fathom.sh)
+  Cron:    */15 * * * * SSH_KEY=~/.ssh/id_fathom bash .../sync-inventory-from-fathom.sh
+  Remote exporters deployed to:
+    /opt/fathom-vault-sync/meeting_transcript_repository-master/scripts/monitoring/
+      fathom_health_exporter.py   (systemd: fathom-health-exporter.timer, every 5 min)
+      fathom-inventory-exporter.py (systemd: fathom-inventory-exporter.timer, hourly)
+  Key setup (one-time):
+    ssh-keygen -t ed25519 -f ~/.ssh/id_fathom -N ""
+    ssh-copy-id -i ~/.ssh/id_fathom.pub fathom-admin@192.168.10.24
 
 UDM Pro:
   Management IP: 192.168.10.1
@@ -644,6 +815,14 @@ REQUIRED BEFORE EMPLOYEE RECONCILE WORKS:
 REQUIRED BEFORE GWORKSPACE DRIVE LIFECYCLE WORKS:
   1. approved_external_shared_drives.json at /opt/monitoring/approved_external_shared_drives.json
   2. shared_drive_state.json — auto-created on first gworkspace-collector run, no manual step needed
+
+REQUIRED BEFORE FATHOM INVENTORY WORKS:
+  1. SSH key at ~/.ssh/id_fathom (monitoring server → fathom-server)
+  2. fathom_health_exporter.py deployed to fathom-server + timer enabled
+  3. fathom-inventory-exporter.py deployed to fathom-server + timer enabled
+  4. sync-inventory-from-fathom.sh in crontab (*/15 * * * *)
+  5. First inventory run: ssh fathom-admin@192.168.10.24 'sudo systemctl start fathom-inventory-exporter.service'
+  Deploy script: SSH_KEY=~/.ssh/id_fathom bash /opt/monitoring/fathom/deploy-fathom-monitoring.sh
 
 REQUIRED BEFORE AKVORADO WORKS:
   1. akvorado docker stack up
@@ -1088,9 +1267,29 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 │   ├── tower_unraid.prom                 ★
 │   └── vps_movement_strategy.prom        ★
 ├── generate-report.py                    ← monitoring_report.json generator
+│                                            system_metrics (all nodes + Windows + aliases)
+│                                            capacity_pressure (structured list, corrected thresholds)
+├── gworkspace-drive-audit.py             ← On-demand Google Drive external sharing audit
+│                                            outputs to reports/drive-audit/*.csv
+├── prom-to-wazuh.sh                      ← Prometheus→Wazuh bridge (33 check rules)
+├── restore-wazuh-customizations.sh       ← Restores Wazuh rules/decoders in one script
 ├── apply-employees-sync.sh               ← Manual: sync Sheet → employees.json
 ├── fix-p3-root.sh                        ← ★ PENDING ROOT RUN (iptables, timers, logrotate)
 ├── fix-grafana-wazuh-indexer.sh          ← Wazuh→Grafana connectivity fix
+├── fathom/                               ← Fathom monitoring deployment package
+│   ├── deploy-fathom-monitoring.sh       ★ Full deploy to fathom-server (SSH prereq)
+│   ├── sync-inventory-from-fathom.sh     ★ Cron script: SCP 4 inventory files from fathom-server
+│   ├── fathom_health_exporter.py         ★ Deploys to fathom-server:scripts/monitoring/
+│   ├── fathom-inventory-exporter.py      ★ Deploys to fathom-server:scripts/monitoring/
+│   ├── fathom-health-exporter.service    ← systemd unit (installed on fathom-server)
+│   ├── fathom-health-exporter.timer      ← 5-min timer (installed on fathom-server)
+│   ├── fathom-inventory-exporter.service ← systemd unit (installed on fathom-server)
+│   ├── fathom-inventory-exporter.timer   ← hourly timer (installed on fathom-server)
+│   ├── fathom.rules.yml                  ← Prometheus alert rules (4 new rules May 2026)
+│   ├── fathom-wazuh-rules.xml            ← Wazuh rules for Fathom SIEM events
+│   ├── fathom-wazuh-agent-config.xml     ← Wazuh agent config for fathom-server
+│   └── scripts/
+│       └── patch-sync-stagger-and-502-tracking.py  ← Patch: stagger sync + 502 tracking
 ├── PLATFORM_REVIEW.md                    ← Rating report + checklist
 └── RESTORATION_GUIDE.md                  ← This file
 
@@ -1123,20 +1322,22 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 
 ## 10. Known Issues, Risks, and Technical Debt
 
-### Active Issues (as of 2026-04-26)
+### Active Issues (as of 2026-05-15)
 
 | Issue | Severity | Status | Fix |
 |---|---|---|---|
 | Alertmanager Gmail app password not set | CRITICAL | Pending | Edit alertmanager.yml, `docker restart alertmanager` |
+| wazuh-server memory at ~87% (warning) | HIGH | Active | Sustained; swap also elevated ~65%. RAM upgrade recommended. |
+| wazuh-server swap at ~65% (warning) | HIGH | Active | Consequence of memory pressure; review Wazuh Indexer, Java heap |
+| vm-devops disk at 70.2% (watch) | MEDIUM | Active | Monitor growth; at watch/warning boundary |
+| Fathom: 2,151 meetings with missing artifacts | MEDIUM | Active | Run --backfill-summaries for 573 missing summaries |
 | fix-p3-root.sh not yet run | HIGH | Pending | `sudo bash /opt/monitoring/fix-p3-root.sh` |
 | iptables rule not persisted | HIGH | Pending | Included in fix-p3-root.sh |
 | authorized_admins.json not deployed | HIGH | Pending | Included in fix-p3-root.sh |
-| employees-sheet-sync.timer not installed | MEDIUM | Pending | Included in fix-p3-root.sh |
-| Grafana password is admin:admin | MEDIUM | User excluded from fix | Change via Grafana UI |
+| Grafana password is admin:admin | MEDIUM | User excluded from fix | Change via Grafana UI (reset to TempPass123 on 2026-05-12) |
 | Wazuh Indexer cluster status YELLOW | LOW | Expected | Single node — no replicas possible |
 | NetworkARPConflict firing (45 conflicts) | MEDIUM | Active alert | Investigate duplicate MACs on LAN |
 | NetworkNewDeviceDetected firing | MEDIUM | Active alert | Whitelist verified new device |
-| HighCPUProcess on 192.168.10.10 | LOW | Active alert | Unraid Tower — investigate process |
 
 ### Confirmed Technical Risks
 
@@ -1174,17 +1375,20 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 | Capability | Detail | Business Value |
 |---|---|---|
 | **Infrastructure monitoring** | 7 hosts, 23 scrape targets, 100% healthy | No blind spots in server health |
-| **14 Grafana dashboards** | Fleet, per-host, Windows, VPS, GW, network, SIEM, export | Single-pane operations view |
+| **17 Grafana dashboards** | Fleet, per-host, Windows, VPS, GW, network, SIEM, Fathom, export, alert command | Single-pane operations view |
 | **Security Operations Center** | Live Prometheus + Wazuh SIEM merged into one view | Unified security posture |
 | **Wazuh SIEM** | 6 agents, custom decoders/rules, FIM, auditd, active response | Security event correlation |
-| **Google Workspace audit** | 99 users, storage, Drive, admin events, sharing policy | SaaS compliance visibility |
-| **Employee ↔ GWorkspace reconciliation** | 99/99 match — zero orphaned, zero missing | HR/IT alignment, offboarding gap detection |
+| **Google Workspace audit** | 98 users, storage, Drive, admin events, sharing policy | SaaS compliance visibility |
+| **Employee ↔ GWorkspace reconciliation** | 98/98 match — zero orphaned, zero missing | HR/IT alignment, offboarding gap detection |
 | **Authorized admins model** | 5 approved super-admins, false CRITICAL suppressed | Reduced alert fatigue |
 | **Network inventory** | 90 LAN devices, MAC baseline, ARP conflict detection | Device visibility, spoofing detection |
 | **NetFlow analytics** | Akvorado + ClickHouse, per-device traffic enrichment | Bandwidth and threat hunting |
 | **Alert delivery** | Alertmanager configured (needs Gmail app password) | Proactive incident notification |
-| **AI-ingestible report** | monitoring_report.json with all 14 dashboards embedded | AI-assisted operations |
-| **Export Reports dashboard** | All tables CSV-exportable, JSON report downloadable | Audit and compliance exports |
+| **Fleet Resource Usage** | All nodes (Linux + Windows) — CPU/Mem/Swap/Disk with corrected thresholds and structured capacity_pressure list | Per-node health export |
+| **Fathom recording inventory** | 12,450 meetings tracked; 82.7% complete; 2,151 with issues; per-account coverage metrics | AI/video asset compliance |
+| **Google Drive external sharing audit** | On-demand audit across Shared Drives and My Drive; classifies findings vs approved list | Data governance enforcement |
+| **AI-ingestible report** | monitoring_report.json — system_metrics (Windows + aliases), capacity_pressure (structured list), 7 Wazuh sections, Fathom recording | AI-assisted operations |
+| **Export Reports dashboard** | All tables CSV-exportable; Fleet Resource tables (Linux + Windows); JSON report downloadable | Audit and compliance exports |
 
 ### Key Incidents Resolved
 
@@ -1192,27 +1396,34 @@ echo "=== Docker containers ===" && docker ps --format "{{.Names}} {{.Status}}" 
 |---|---|---|
 | Feb 2026 | node-exporter down 4 weeks | Docker DNS scrape target fix |
 | Mar 2026 | VPS metrics stale 20+ days | SSH known_hosts refresh |
+| Mar 4 2026 | fathom-vaultserver disk blank; VM lost | VM rebuilt at 192.168.10.24; data recovered from NAS |
 | Apr 13 2026 | Wazuh manager destroyed by agent install | Full manager recovery, apt-mark hold |
 | Apr 16 2026 | Wazuh Indexer OOM crash | JVM heap capped at 1g, dumps disabled |
 | Apr 2026 | ClickHouse disk overflow (3.8 GB/day) | trace_log disabled in server.xml |
 | May 2026 | ClickHouse 190% CPU (merge storm) | background_pool_size 16→4; text_log disabled; metric_log slowed 1s→60s; system tables truncated |
+| May 2026 | Akvorado Kafka lag 1.2M messages | Consumer offset reset to latest (stale backlog from ClickHouse downtime) |
 | Apr 2026 | Grafana→Wazuh Indexer broken | Elasticsearch DS + iptables rule |
 | Apr 2026 | Admin accounts false CRITICAL alerts | Authorized admins list + index update |
+| May 2026 | Fathom inventory exporter: "no such column: m.id" | DB schema discovery: PK=call_id (TEXT), fixed ORDER BY |
+| May 2026 | monitoring_report.json NameError on print | Fixed: alerts → _alert_raw variable reference |
 
 ### Numbers
 
 ```
-Hosts monitored:          7  (+UDM Pro gateway)
-Scrape targets:          23  (100% healthy)
-Prometheus alert rules:  47  across 6 rule files
-Grafana dashboards:      14  (0 duplicates)
+Hosts monitored:          7  (+UDM Pro gateway)  [+ Windows node in system_metrics]
+Scrape targets:          23  (100% healthy as of 2026-05-15)
+Prometheus alert rules:  72  across 8 rule files (was 47)
+Recording rules:         20  (fast-query aggregates: cpu/mem/swap/disk/uptime per node)
+Grafana dashboards:      17  (was 14; added alert-command-center, fleet-overview, fathom-vault-sync)
 Wazuh agents:             6  active
 Custom Wazuh rules:      40+ across 5 rule files
 Network devices:         90  (80 baselined)
-Employees tracked:       99  (100% GW match)
+Fathom meetings:      12,450  (82.7% complete, 17.3% with issues)
+Employees tracked:       98  (100% GW match)
 Authorized admins:        5  defined
-Dashboard exports:       14  JSON files (AI-ready)
-Systemd timers:          15  custom (all running)
+Dashboard exports:       17  JSON files (AI-ready)
+Systemd timers:          15  custom (monitoring server) + 2 on fathom-server (all running)
+Prom-to-Wazuh rules:     33  check types
 ```
 
 ---
@@ -1222,6 +1433,13 @@ Systemd timers:          15  custom (all running)
 ### Immediate (This Week)
 
 ```
+[✓] Git commits up to date (last commit: e5a50b4 2026-05-15)
+    Committed: generate-report.py, dashboards/export-reports.json,
+               fathom/fathom.rules.yml, fathom/fathom_health_exporter.py,
+               prom-to-wazuh.sh, restore-wazuh-customizations.sh,
+               fathom/scripts/patch-sync-stagger-and-502-tracking.py,
+               gworkspace-drive-audit.py
+
 [ ] sudo bash /opt/monitoring/fix-p3-root.sh
     ← deploys: authorized_admins, iptables-persistent, logrotate,
                employees-sheet-sync.timer, Prometheus rules, Prometheus reload
@@ -1232,13 +1450,14 @@ Systemd timers:          15  custom (all running)
     Get app password: Google Account → Security → 2-Step Verification → App passwords
     Then: docker restart alertmanager
 
-[ ] Git commit all changes (3+ weeks overdue)
-    cd /opt/monitoring
-    git add -A
-    git commit -m "April 2026: Wazuh SIEM wired, employee reconcile, SOC dashboard, export reports, authorized admins, p3 fixes"
-    git push
-
 [ ] sudo apt-mark hold wazuh-agent  ← prevent April 13 repeat
+
+[ ] Investigate wazuh-server memory pressure (~87% warning, sustained)
+    Check: Wazuh Indexer heap (should be 1g), Docker container footprint
+    Consider: RAM upgrade (currently 7.8 GB, recommendation: 16 GB)
+
+[ ] Fathom backfill: run --backfill-summaries for 573 actionable meetings
+    ssh fathom-admin@192.168.10.24 'python3 ... --backfill-summaries'
 ```
 
 ### Short Term (30 days)
@@ -1322,34 +1541,61 @@ NETWORKING
 GRAFANA
 [ ] Prometheus datasource healthy (UID: afiwke54zcjcwe or re-created)
 [ ] Wazuh Indexer datasource healthy (Elasticsearch type, 172.18.0.1:9200)
-[ ] All 14 dashboards imported from /opt/monitoring/dashboards/
+[ ] All 17 dashboards imported from /opt/monitoring/dashboards/
 [ ] Security Operations Center accessible and showing data
+[ ] Export Reports → Fleet Resource Usage section visible (panel IDs 85-91)
 
 PROMETHEUS
 [ ] All 23 scrape targets Up
-[ ] 47 alert rules loaded (promtool check rules)
+[ ] 72 alert rules loaded (promtool check rules)
+[ ] 20 recording rules loaded
 [ ] Alertmanager connected
 
-SYSTEMD TIMERS (all should show active in systemctl list-timers)
+FATHOM MONITORING (on fathom-server)
+[ ] SSH key ~/.ssh/id_fathom established (monitoring server → fathom-admin@192.168.10.24)
+[ ] fathom_health_exporter.py deployed + fathom-health-exporter.timer enabled
+[ ] fathom-inventory-exporter.py deployed + fathom-inventory-exporter.timer enabled
+[ ] sync-inventory-from-fathom.sh in crontab (*/15 * * * *)
+[ ] /opt/monitoring/reports/fathom_recording_inventory.json present and valid
+[ ] curl http://192.168.10.20:8088/fathom_recording_issues.json → HTTP 200
+
+SYSTEMD TIMERS — MONITORING SERVER (all should show active in systemctl list-timers)
 [ ] sys-sample-prom.timer (15s)
 [ ] sys-topproc.timer (60s)
-[ ] prom-to-wazuh.timer (60s)
+[ ] topproc-generate.timer (60s)
+[ ] prom-to-wazuh.timer (60s — 33 check rules)
+[ ] tower-unraid-textfile.timer (60s)
+[ ] tower-docker-list-textfile.timer (60s)
+[ ] tower-extras-textfile.timer (60s)
 [ ] prom-html-dashboards.timer (3min)
 [ ] prom-refresh-html.timer (3min)
-[ ] gworkspace-collector.timer (5min)
 [ ] udm-arp-collector.timer (5min)
 [ ] monitoring-report.timer (5min)
-[ ] employee-reconcile.timer (30min)
-[ ] employees-sheet-sync.timer (daily 08:00)
 [ ] akvorado-mesh-to-wazuh.timer (5min)
+[ ] employee-reconcile.timer (30min)
+[ ] employees-sheet-sync.timer (daily 06:00)
+[ ] logrotate.timer (daily)
+
+CRON — MONITORING SERVER (crontab -l)
+[ ] 0 3 * * *   update-suricata-rules.sh
+[ ] */15 * * * *  sync-inventory-from-fathom.sh (SSH_KEY=~/.ssh/id_fathom)
+
+SYSTEMD TIMERS — FATHOM-SERVER (ssh fathom-admin@192.168.10.24 systemctl list-timers)
+[ ] fathom-health-exporter.timer (5min)
+[ ] fathom-inventory-exporter.timer (hourly)
 
 VALIDATION
 [ ] curl http://192.168.10.20:8088/monitoring_report.json → valid JSON, wazuh_agents populated
+[ ] jq '.system_metrics | keys' monitoring_report.json → shows 6 nodes including 192.168.1.253:9182
+[ ] jq '.capacity_pressure | type' monitoring_report.json → "array" (not "object")
+[ ] jq '.capacity_pressure[0].alias' monitoring_report.json → "wazuh-server" (not null)
 [ ] curl http://192.168.10.20:3000/d/security-ops-center → loads with data
 [ ] curl http://127.0.0.1:9090/api/v1/alerts → shows active alerts
-[ ] Employee reconcile runs clean: 99 employees / 99 GW active / 0 orphaned
+[ ] Employee reconcile runs clean: 98 employees / 98 GW active / 0 orphaned
 [ ] Network inventory baseline intact (80 MACs)
 [ ] Wazuh Indexer: cluster status green/yellow, 313+ shards active
+[ ] curl http://192.168.10.20:8088/fathom_recording_inventory.json → HTTP 200, generated_at within 1h
+[ ] curl http://192.168.10.20:8088/fathom_recording_issues.json → HTTP 200
 ```
 
 ---
@@ -1362,22 +1608,26 @@ VALIDATION
    • Gmail app password for brian.monte@yokly.gives
    • Wazuh kibanaserver password (from installed Wazuh — auto-generated)
    • UDM Pro SNMP community string
+   • /home/wazuh-admin/.ssh/id_fathom  (private key — fathom-server SSH access)
 
 2. DATA FILES:
    • /opt/monitoring/data/employees.json  (or access to Google Sheet to re-sync)
    • /opt/monitoring/data/authorized_admins.json
    • /opt/monitoring/data/device_names.json  (named devices lost without this)
    • /opt/monitoring/data/network_inventory_state.json  (baseline lost without this)
+   • /opt/monitoring/approved_service_accounts.json  (17 entries — prevents false orphan alerts)
+   • /opt/monitoring/approved_external_shared_drives.json  (16 client drives approved)
 
 3. CONFIGS (in git repo — recoverable):
    • docker-compose.yml, prometheus.yml, alertmanager.yml, blackbox.yml
    • All rules/ and targets/ files
-   • All bin/ scripts
+   • All bin/ scripts and fathom/ scripts
 
 4. WAZUH CUSTOM FILES (NOT in git — must be backed up separately):
    • /var/ossec/etc/decoders/ custom XML files
    • /var/ossec/etc/rules/ custom XML files
    • /var/ossec/etc/ossec.conf
+   NOTE: restore-wazuh-customizations.sh re-creates these from embedded heredoc content
 
 5. WAZUH HISTORICAL DATA:
    • Wazuh Indexer indices (wazuh-alerts-4.x-*) — NOT recoverable unless backed up
@@ -1387,6 +1637,12 @@ VALIDATION
    • /opt/monitoring/data/network_inventory_state.json
    • Loss requires re-running baseline-network-inventory.py (generates new baseline)
    • All devices will appear as "new" until next baseline run
+
+7. FATHOM INVENTORY (partially recoverable):
+   • /var/lib/fathom-monitoring/inventory/*.json on fathom-server
+     → recoverable by re-running fathom-inventory-exporter.py (reads live SQLite DB)
+   • /opt/monitoring/reports/fathom_recording_*.json on monitoring server
+     → recoverable by running sync-inventory-from-fathom.sh after exporter runs
 ```
 
 ---
@@ -1426,11 +1682,15 @@ INFERRED / UNCONFIRMED:
 [ ] Is there a DR plan for wazuh-server hardware failure? (None documented)
 [ ] Is GCP service account key rotation scheduled? (Assumed: no rotation)
 [ ] Are Wazuh agents on Unraid/fathom/win11 correctly configured? (Connectivity seen in Indexer but not verified via manager)
+[ ] Does fathom-admin have passwordless sudo on fathom-server? (Required for systemd cp steps in deploy script)
+[ ] Is the id_fathom SSH private key backed up outside of wazuh-server? (Required to restore fathom inventory sync)
+[ ] Fathom --backfill-summaries command: exact invocation path on fathom-server not documented
+[ ] vm-devops disk at 70.2% — what is the primary consumer? (Needs investigation before it hits warning at 80%)
 ```
 
 ---
 
-*Document version: 2026-04-26*
+*Document version: 2026-05-15*
 *Generated from live system state. Confirmed facts sourced from running services.*
 *Assumptions are marked [INFERRED] in the text above.*
 *For questions: brian.monte@yokly.gives*
